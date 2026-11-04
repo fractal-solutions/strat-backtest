@@ -93,6 +93,28 @@ A short is the mirror: sell stop at the setup low, stop at the setup high.
 Targets are the structural 20-bar high/low with a 2R fallback, as used in the
 backtests. If both sides break in the same bar, the backtest skips the trade.
 
+### Mode and entry terms
+
+The frozen default is `continuity + intrabar + structural`.
+
+| Term | Meaning |
+|---|---|
+| `HTF` | Higher timeframe. For D1, weekly and monthly. |
+| `Continuity` | Default HTF filter. Long only when weekly and monthly bias are both up; short only when both are down. |
+| `Reversal` | Experimental. Long only when both HTF biases are down; short only when both are up. |
+| `All` / `none` | Experimental. Ignore the HTF filter. |
+| `Intrabar` | Default entry. Fill when the trigger is touched; a gap fills at the open. |
+| `Close` | Experimental entry. Fill at the trigger bar close, and only if it closes beyond the trigger. |
+| `Structural` | Default target. Prior 20-bar high/low, at least 0.5R away, otherwise 2R. |
+| `2R` | Experimental target. Fixed at entry plus or minus 2 times risk. |
+| `HTF conflict` | No signal because the HTF filter does not allow the breakout direction. |
+| `R` | One risk unit: the entry-to-stop distance. |
+| `PF` | Profit factor: gross wins divided by gross losses. |
+
+HTF bias here is candle color: the current weekly or monthly close versus its
+open. The portfolio results and signal bot use continuity, an intrabar-style
+trigger, and structural targets. The other modes are experiments.
+
 ## Live D1 signal generator
 
 Run the full scan with one command:
@@ -474,11 +496,12 @@ monthly deflated Sharpe using those variants as trials.<br><br>
 | `2D` | Down directional bar: breaks prior low, not prior high. |
 | `3` | Outside bar: breaks both prior high and prior low. |
 | `2-1`, `3-1`, `1-2`, `2-2`, `3-2` | Two-bar context labels used to select breakout setups. |
-| `HTF` | Higher timeframe. H1 uses H4/D1; H4 uses D1/W1; D1 uses W1/M1. |
+| `HTF` | Higher timeframe. For D1, weekly and monthly. |
+| `MTFA` | Multi-timeframe analysis: using higher-timeframe context. |
 | `FTC` | Full timeframe continuity: all referenced timeframes same color. |
-| `Continuity` | Trade only in the direction of both HTF candles. |
-| `Reversal` | Trade against both HTF candles. |
-| `All` | Ignore the HTF filter. |
+| `Continuity` | Trade only in the direction of both HTF biases (default). |
+| `Reversal` | Trade against both HTF biases (experimental). |
+| `All` / `none` | Ignore the HTF filter (experimental). |
 | `Trigger` | The setup bar high (long) or low (short) that the next bar must break. |
 | `Stop` | Opposite side of the setup bar. |
 | `Structural target` | Prior 20-bar swing high/low; falls back to 2R if too close. |
@@ -726,7 +749,7 @@ Common backtest flags:
 | `--data` | JSON or CSV bars |
 | `--tf` | H1, H4, D1 |
 | `--setups` | Comma list of setups |
-| `--htf` | continuity, reversal, all |
+| `--htf` | continuity, reversal, all, none |
 | `--entry` | intrabar, close |
 | `--target` | structural, 2r |
 | `--blocks` | HTF block sizes, e.g. `4,24` |
