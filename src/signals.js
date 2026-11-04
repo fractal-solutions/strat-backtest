@@ -214,6 +214,19 @@ function triggerState(signal) {
     return { label: 'WAITING', tone: 'dim' };
 }
 
+function pnlPips(signal) {
+    if (!signal.quote) return null;
+    const pip = signal.pair.includes('JPY') ? 0.01 : 0.0001;
+    return signal.direction * (signal.quote.price - signal.entry) / pip;
+}
+
+function formatPnl(signal) {
+    const pnl = pnlPips(signal);
+    if (pnl === null) return chalk.dim('n/a');
+    const text = `${pnl >= 0 ? '+' : ''}${pnl.toFixed(1)}`;
+    return pnl > 0 ? chalk.green(text) : pnl < 0 ? chalk.red(text) : chalk.dim(text);
+}
+
 function ageLabel(minutes) {
     if (!Number.isFinite(minutes)) return 'n/a';
     if (minutes < 120) return `${Math.max(0, Math.round(minutes))}m ago`;
@@ -298,6 +311,7 @@ function card(signal) {
         `${label('HTF')}${htfLabel(signal.htf)}`,
         `${label('RATING')}${ratingLine}`,
         `${label('LAST')}${quote}`,
+        ...(state.label === 'TRIGGERED' ? [`${label('P/L')}${formatPnl(signal)} pips`] : []),
         `${label('STATUS')}${stateColor(state.label)}`,
         `${label('BAR')}${chalk.dim(`${signal.latest} -> ${nextSessionDate(signal.latest)}`)}`
     ].join('\n');
@@ -384,8 +398,8 @@ function renderWatchTable(closed, watch) {
 
 function renderSignalTable(signals) {
     const table = new Table({
-        head: [chalk.bold('PAIR'), chalk.bold('R'), chalk.bold('DIR'), chalk.bold('SETUP'), chalk.bold('ENTRY'), chalk.bold('STOP'), chalk.bold('TARGET'), chalk.bold('R:R'), chalk.bold('LAST'), chalk.bold('STATUS')],
-        colWidths: [8, 3, 7, 8, 9, 9, 9, 6, 9, 12],
+        head: [chalk.bold('PAIR'), chalk.bold('R'), chalk.bold('DIR'), chalk.bold('SETUP'), chalk.bold('ENTRY'), chalk.bold('STOP'), chalk.bold('TARGET'), chalk.bold('R:R'), chalk.bold('LAST'), chalk.bold('P/L')],
+        colWidths: [8, 3, 7, 8, 9, 9, 9, 6, 9, 8],
         style: { head: [], border: [], compact: true },
         wordWrap: false
     });
@@ -401,7 +415,7 @@ function renderSignalTable(signals) {
             signal.target.toFixed(signal.decimals),
             signal.rr.toFixed(2),
             last,
-            chalk.yellow.bold(triggerState(signal).label)
+            formatPnl(signal)
         ]);
     }
     console.log(table.toString());
@@ -499,8 +513,9 @@ async function main() {
 
     console.log(chalk.dim('Orders are conditional: enter only if price breaks the trigger.'));
     console.log(chalk.dim('The setup bar is the last completed D1 bar; the order is for the next bar.'));
-    console.log(chalk.dim('STATUS and LAST use the latest completed H1 bar, not a live tick.'));
+    console.log(chalk.dim('LAST, STATUS, and P/L use the latest completed H1 bar, not a live tick.'));
     console.log(chalk.dim('WAITING = order pending. TRIGGERED = entry crossed. INVALIDATED = stop crossed.'));
+    console.log(chalk.dim('P/L is raw price movement in pips, before spread, commission, and swap.'));
     console.log(chalk.dim('Rating: A = 2-1/3-1, B = 1-2, C = 2-2/3-2.'));
     console.log(chalk.dim('Historical 2014-2026 expectancy, not a forecast or size instruction.'));
     console.log(chalk.dim(`Generated in ${((Date.now() - started) / 1000).toFixed(1)}s.`));
