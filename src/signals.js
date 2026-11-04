@@ -22,6 +22,16 @@ const SETUP_DESCRIPTION = {
     '2-2': '2U/2D after 2U/2D',
     '3-2': '2U/2D after outside'
 };
+const SETUP_RATING = {
+    '2-1': { rating: 'A', avg: 0.464, pf: 1.80 },
+    '3-1': { rating: 'A', avg: 0.447, pf: 1.86 },
+    '1-2': { rating: 'B', avg: 0.151, pf: 1.30 },
+    '2-2': { rating: 'C', avg: 0.071, pf: 1.14 },
+    '3-2': { rating: 'C', avg: 0.081, pf: 1.16 }
+};
+const RATING_ORDER = { A: 0, B: 1, C: 2 };
+const ratingColor = rating => rating === 'A' ? chalk.green : rating === 'B' ? chalk.yellow : chalk.dim;
+const sortSignals = signals => [...signals].sort((a, b) => (RATING_ORDER[a.rating] ?? 9) - (RATING_ORDER[b.rating] ?? 9) || a.pair.localeCompare(b.pair));
 
 function parseArgs(argv) {
     const options = {};
@@ -243,6 +253,8 @@ function analyze(bars, pair, quote) {
             directionLabel: directionLabel(direction),
             setup: setup.name,
             setupDescription: SETUP_DESCRIPTION[setup.name] ?? setup.name,
+            rating: (SETUP_RATING[setup.name] ?? { rating: '-' }).rating,
+            historical: SETUP_RATING[setup.name] ?? null,
             entry,
             stop,
             target,
@@ -272,14 +284,19 @@ function card(signal) {
     const quote = signal.quote
         ? `${signal.quote.price.toFixed(signal.decimals)}  ${chalk.dim(`(${ageLabel(signal.quote.ageMinutes)})`)}`
         : chalk.dim('n/a');
+    const historical = signal.historical;
+    const ratingLine = historical
+        ? `${ratingColor(signal.rating)(signal.rating)}  ${chalk.dim(`hist ${historical.avg >= 0 ? '+' : ''}${historical.avg.toFixed(3)}R  PF ${historical.pf.toFixed(2)}`)}`
+        : chalk.dim('-');
     const content = [
         `${dir}  ${chalk.bold(signal.setup)}  ${chalk.dim(signal.setupDescription)}`,
-        chalk.gray('─'.repeat(40)),
+        chalk.gray('-'.repeat(40)),
         `${label('ENTRY')}${chalk.bold(orderType)}  ${chalk.white.bold(signal.entry.toFixed(signal.decimals))}`,
         `${label('STOP')}${chalk.white(signal.stop.toFixed(signal.decimals))}`,
         `${label('TARGET')}${chalk.white(signal.target.toFixed(signal.decimals))}`,
         `${label('RISK')}${signal.riskPips.toFixed(1)} pips  ${chalk.dim('R:R')} ${signal.rr.toFixed(2)}`,
         `${label('HTF')}${htfLabel(signal.htf)}`,
+        `${label('RATING')}${ratingLine}`,
         `${label('LAST')}${quote}`,
         `${label('STATUS')}${stateColor(state.label)}`,
         `${label('BAR')}${chalk.dim(`${signal.latest} -> ${nextSessionDate(signal.latest)}`)}`
@@ -334,6 +351,7 @@ function renderWatchTable(closed, watch) {
         const color = item.state.label === 'TARGET REACHED' ? chalk.green : chalk.red;
         rows.push([
             chalk.bold(signal.pair),
+            ratingColor(signal.rating)(signal.rating),
             color(item.state.label),
             `${signal.directionLabel} ${signal.setup}`,
             chalk.dim(htfLabel(signal.htf)),
@@ -343,18 +361,18 @@ function renderWatchTable(closed, watch) {
     for (const result of watch) {
         const bias = result.bias ? chalk.dim(htfLabel(result.bias)) : '';
         if (result.status === 'no-setup') {
-            rows.push([chalk.bold(result.pair), chalk.dim('no setup'), chalk.dim(`bar ${result.lastBarType ?? '?'}`), bias, '']);
+            rows.push([chalk.bold(result.pair), chalk.dim('-'), chalk.dim('no setup'), chalk.dim(`bar ${result.lastBarType ?? '?'}`), bias, '']);
         } else if (result.status === 'filtered') {
-            rows.push([chalk.bold(result.pair), chalk.dim('filtered'), chalk.dim(`setup ${result.setup}`), bias, '']);
+            rows.push([chalk.bold(result.pair), chalk.dim('-'), chalk.dim('filtered'), chalk.dim(`setup ${result.setup}`), bias, '']);
         } else if (result.status === 'htf-blocked') {
-            rows.push([chalk.bold(result.pair), chalk.yellow('HTF blocked'), '', bias, '']);
+            rows.push([chalk.bold(result.pair), chalk.dim('-'), chalk.yellow('HTF blocked'), '', bias, '']);
         } else {
-            rows.push([chalk.bold(result.pair), chalk.red('ERROR'), chalk.dim(String(result.reason).slice(0, 18)), bias, '']);
+            rows.push([chalk.bold(result.pair), chalk.dim('-'), chalk.red('ERROR'), chalk.dim(String(result.reason).slice(0, 18)), bias, '']);
         }
     }
     const table = new Table({
-        head: [chalk.bold('PAIR'), chalk.bold('STATE'), chalk.bold('DETAIL'), chalk.bold('HTF'), chalk.bold('LAST')],
-        colWidths: [8, 16, 20, 17, 10],
+        head: [chalk.bold('PAIR'), chalk.bold('R'), chalk.bold('STATE'), chalk.bold('DETAIL'), chalk.bold('HTF'), chalk.bold('LAST')],
+        colWidths: [8, 3, 16, 20, 17, 10],
         style: { head: [], border: [], compact: true },
         wordWrap: false
     });
@@ -366,8 +384,8 @@ function renderWatchTable(closed, watch) {
 
 function renderSignalTable(signals) {
     const table = new Table({
-        head: [chalk.bold('PAIR'), chalk.bold('DIR'), chalk.bold('SETUP'), chalk.bold('ENTRY'), chalk.bold('STOP'), chalk.bold('TARGET'), chalk.bold('R:R'), chalk.bold('LAST'), chalk.bold('STATUS')],
-        colWidths: [9, 7, 8, 10, 10, 10, 6, 10, 12],
+        head: [chalk.bold('PAIR'), chalk.bold('R'), chalk.bold('DIR'), chalk.bold('SETUP'), chalk.bold('ENTRY'), chalk.bold('STOP'), chalk.bold('TARGET'), chalk.bold('R:R'), chalk.bold('LAST'), chalk.bold('STATUS')],
+        colWidths: [8, 3, 7, 8, 9, 9, 9, 6, 9, 12],
         style: { head: [], border: [], compact: true },
         wordWrap: false
     });
@@ -375,6 +393,7 @@ function renderSignalTable(signals) {
         const last = signal.quote ? signal.quote.price.toFixed(signal.decimals) : 'n/a';
         table.push([
             chalk.bold(signal.pair),
+            ratingColor(signal.rating)(signal.rating),
             signal.direction > 0 ? chalk.green('LONG') : chalk.red('SHORT'),
             signal.setup,
             signal.entry.toFixed(signal.decimals),
@@ -426,10 +445,11 @@ async function main() {
     const longCount = signals.filter(signal => signal.direction > 0).length;
     const shortCount = signals.length - longCount;
     const scored = signals.map(signal => ({ signal, state: triggerState(signal) }));
-    const pending = scored.filter(item => item.state.label === 'WAITING').map(item => item.signal);
-    const triggered = scored.filter(item => item.state.label === 'TRIGGERED').map(item => item.signal);
-    const unknown = scored.filter(item => item.state.label === 'PRICE UNAVAILABLE').map(item => item.signal);
-    const closed = scored.filter(item => ['TARGET REACHED', 'INVALIDATED'].includes(item.state.label));
+    const pending = sortSignals(scored.filter(item => item.state.label === 'WAITING').map(item => item.signal));
+    const triggered = sortSignals(scored.filter(item => item.state.label === 'TRIGGERED').map(item => item.signal));
+    const unknown = sortSignals(scored.filter(item => item.state.label === 'PRICE UNAVAILABLE').map(item => item.signal));
+    const closed = scored.filter(item => ['TARGET REACHED', 'INVALIDATED'].includes(item.state.label))
+        .sort((a, b) => (RATING_ORDER[a.signal.rating] ?? 9) - (RATING_ORDER[b.signal.rating] ?? 9) || a.signal.pair.localeCompare(b.signal.pair));
     const nextSession = latest !== 'n/a' ? nextSessionDate(latest) : 'n/a';
     const feedLabel = offline ? 'local snapshot (offline)' : `Dukascopy D1${fallback ? ' + local fallback' : ''}`;
 
@@ -481,6 +501,8 @@ async function main() {
     console.log(chalk.dim('The setup bar is the last completed D1 bar; the order is for the next bar.'));
     console.log(chalk.dim('STATUS and LAST use the latest completed H1 bar, not a live tick.'));
     console.log(chalk.dim('WAITING = order pending. TRIGGERED = entry crossed. INVALIDATED = stop crossed.'));
+    console.log(chalk.dim('Rating: A = 2-1/3-1, B = 1-2, C = 2-2/3-2.'));
+    console.log(chalk.dim('Historical 2014-2026 expectancy, not a forecast or size instruction.'));
     console.log(chalk.dim(`Generated in ${((Date.now() - started) / 1000).toFixed(1)}s.`));
 }
 

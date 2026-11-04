@@ -44,6 +44,15 @@ session. It also fetches the latest H1 bar so each signal can be marked:
 - `INVALIDATED`: H1 close is already beyond the stop.
 - `TARGET REACHED`: target already reached.
 
+Each card and table row also carries a subtle A/B/C rating:
+
+- A: `2-1` and `3-1`
+- B: `1-2`
+- C: `2-2` and `3-2`
+
+The rating is historical 2014-2026 setup expectancy, not a probability or
+position-sizing instruction. It is only a prioritization label.
+
 The terminal UI has four parts:
 
 1. Header: run time, feed, last bar, next session, freshness, and counts.
