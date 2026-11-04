@@ -26,68 +26,234 @@ bootstrap, deflated Sharpe, and a portfolio engine with daily mark-to-market.
 | Portfolio 2008-2026 | CAGR 15.20%, Sharpe 1.44, maxDD -13.24%, DSR 0.992 **PASS** |
 | Decision | No live capital; paper trading is the only justified next step |
 
+## What is actually working on D1
+
+These are all **signal-level** results across the 16-pair Dukascopy broker feed,
+2014-2026. The portfolio applies risk caps, so its trade count differs; this
+table shows which Strat setups carry the edge before portfolio sizing.
+
+| Setup | Trades | Win rate | Avg net R | PF | Total net R |
+|---|---|---|---|---|---|
+| `2-1` | 798 | 47.1% | +0.464 | 1.80 | +370.1 |
+| `3-1` | 293 | 48.8% | +0.447 | 1.86 | +131.1 |
+| `1-2` | 854 | 47.5% | +0.151 | 1.30 | +129.1 |
+| `2-2` | 2,809 | 44.9% | +0.071 | 1.14 | +199.1 |
+| `3-2` | 1,962 | 45.7% | +0.081 | 1.16 | +158.5 |
+| All | 6,716 | 45.9% | +0.147 | 1.28 | +987.9 |
+
+`Total net R` sums each trade at 1R risk; it is not portfolio PnL. The edge is
+concentrated in **inside-bar-after-directional/outside breakouts** (`2-1`,
+`3-1`). `2-2` and `3-2` trade often but are only marginally profitable.
+
+### Direction split
+
+| Side | Trades | Win rate | Avg net R | PF | Total net R |
+|---|---|---|---|---|---|
+| Long | 3,567 | 46.5% | +0.202 | 1.39 | +719.0 |
+| Short | 3,149 | 45.2% | +0.085 | 1.16 | +268.9 |
+
+The long side carried most of the edge in this sample.
+
+### Pair composition (portfolio contribution, 2014-2026)
+
+Contribution is `risk amount * net R` summed over the portfolio, in percentage
+points of initial equity. Bars are relative to the largest absolute contribution.
+
+| Pair | Trades | Win rate | Avg net R | PF | Contribution | Bar |
+|---|---|---|---|---|---|---|
+| AUDJPY | 450 | 48.0% | +0.358 | 1.72 | +110.02% | `##########` |
+| USDCAD | 419 | 48.2% | +0.210 | 1.41 | +83.22% | `########` |
+| EURAUD | 417 | 47.7% | +0.222 | 1.46 | +71.87% | `#######` |
+| GBPJPY | 418 | 46.4% | +0.191 | 1.38 | +67.23% | `######` |
+| NZDUSD | 458 | 46.5% | +0.175 | 1.34 | +60.48% | `#####` |
+| EURUSD | 405 | 51.1% | +0.236 | 1.49 | +58.94% | `#####` |
+| CHFJPY | 438 | 44.5% | +0.076 | 1.14 | +57.28% | `#####` |
+| AUDUSD | 419 | 43.2% | +0.111 | 1.22 | +54.53% | `#####` |
+| CADJPY | 420 | 49.0% | +0.227 | 1.45 | +52.07% | `#####` |
+| USDJPY | 422 | 45.5% | +0.190 | 1.36 | +41.11% | `####` |
+| GBPUSD | 396 | 47.2% | +0.131 | 1.26 | +35.43% | `###` |
+| EURCHF | 405 | 44.2% | +0.056 | 1.10 | +34.85% | `###` |
+| EURJPY | 416 | 44.7% | +0.099 | 1.19 | +32.62% | `###` |
+| EURCAD | 404 | 43.3% | +0.059 | 1.11 | +15.29% | `#` |
+| USDCHF | 408 | 47.3% | +0.107 | 1.22 | +9.89% | `#` |
+| EURGBP | 421 | 37.1% | -0.116 | 0.81 | -26.93% | `--` |
+
+The portfolio is not carried by one pair. It is broad, with JPY crosses and
+commodity crosses leading. EURGBP is the clear negative outlier; it was **not**
+removed after the fact.
+
+## Yearly results
+
+### Portfolio variants by year (2008-2026, frozen rule and costs)
+
+Each cell is that variant's portfolio return for the calendar year.
+
+| Year | default (frozen) | all | reversal | 2R | close |
+|---|---|---|---|---|---|
+| 2008 | +29.0% | +20.3% | -10.7% | +21.4% | +2.9% |
+| 2009 | +7.8% | +37.4% | +33.5% | +9.0% | -3.4% |
+| 2010 | +23.6% | +23.3% | +3.4% | +18.0% | -0.8% |
+| 2011 | +31.6% | +33.2% | +64.5% | +30.5% | -3.3% |
+| 2012 | +22.6% | +37.0% | +0.9% | +15.8% | +4.2% |
+| 2013 | +15.2% | +39.6% | +35.4% | +13.1% | -3.0% |
+| 2014 | -2.8% | +9.8% | +38.2% | +1.7% | -9.6% |
+| 2015 | +28.3% | +62.2% | +54.4% | +28.4% | +2.5% |
+| 2016 | +18.9% | +21.8% | +58.6% | +16.6% | -5.3% |
+| 2017 | +6.2% | +25.1% | +50.6% | +10.4% | -10.4% |
+| 2018 | +21.2% | +27.2% | +35.8% | +29.2% | -3.9% |
+| 2019 | +18.1% | +33.4% | +48.7% | +15.2% | -3.9% |
+| 2020 | +10.4% | +26.7% | +56.7% | +11.8% | -5.6% |
+| 2021 | +19.1% | +30.1% | +16.2% | +12.7% | -5.2% |
+| 2022 | +32.9% | +31.6% | +47.3% | +23.0% | -2.9% |
+| 2023 | +10.7% | +23.2% | +26.8% | +8.1% | -6.1% |
+| 2024 | +40.9% | +43.0% | +25.2% | +37.5% | +15.3% |
+| 2025 | +7.5% | +2.5% | +16.6% | +1.7% | -12.9% |
+| 2026 | +29.5% | +19.6% | +4.8% | +24.9% | +1.6% |
+
+The frozen default is positive in 18 of 19 years; the only negative year is
+2014. The "all" and "reversal" variants look stronger in many years, but they
+were not selected ex ante; do not switch to them after seeing this table.
+
+### Setup contribution by year (net R, 2014-2026)
+
+| Year | 2-1 | 3-1 | 1-2 | 2-2 | 3-2 | Total |
+|---|---|---|---|---|---|---|
+| 2014 | -7.6 | +0.3 | -12.8 | -7.2 | +30.2 | +2.8 |
+| 2015 | +10.2 | +17.8 | +5.7 | +44.3 | +28.1 | +106.1 |
+| 2016 | +17.2 | +6.7 | +37.1 | +33.1 | +3.0 | +97.0 |
+| 2017 | +8.4 | +5.8 | +7.4 | +10.3 | -7.5 | +24.4 |
+| 2018 | +65.0 | -3.3 | +20.0 | -0.9 | +12.0 | +92.7 |
+| 2019 | +32.9 | +28.6 | -2.0 | +22.0 | -18.3 | +63.2 |
+| 2020 | +29.2 | +8.9 | +30.8 | -10.9 | +11.0 | +69.0 |
+| 2021 | +27.0 | +1.2 | +18.3 | +2.0 | +17.5 | +65.8 |
+| 2022 | +40.5 | +12.1 | -2.2 | +55.1 | +4.4 | +109.9 |
+| 2023 | +16.6 | +12.6 | +26.7 | -4.8 | +1.8 | +52.8 |
+| 2024 | +61.7 | +12.4 | +5.1 | +47.7 | +55.0 | +181.9 |
+| 2025 | +34.8 | +16.9 | -0.8 | -37.7 | +6.4 | +19.7 |
+| 2026 | +34.3 | +11.0 | -4.2 | +46.2 | +15.2 | +102.5 |
+
+`2-1` and `3-1` are the most reliable year to year. `2-2` is large but volatile
+(+55.1 in 2022, -37.7 in 2025). This supports focusing on compression breakouts.
+
+## Timeframe continuity: what the experiments actually show
+
+The Strat doctrine treats HTF continuity as the main edge. In these mechanical
+tests it is **not** the source of the edge:
+
+| Experiment | Continuity (frozen) | HTF all | Reversal | 2R | Close entry |
+|---|---|---|---|---|---|
+| EURUSD D1 Sharpe | 0.59 | 0.85 | 0.66 | 0.71 | 0.07 |
+| Portfolio 2014-2026 CAGR | +14.46% | +21.50% | +28.36% | +13.36% | -3.02% |
+| Portfolio 2014-2026 Sharpe | 1.38 | 1.61 | 1.87 | 1.38 | -0.49 |
+| Portfolio 2008-2026 CAGR | +15.20% | +22.37% | +23.85% | +13.55% | -2.28% |
+
+Removing the filter, or trading against it, improves almost every aggregate.
+This is evidence that the **candle-color implementation of continuity is noisy**,
+not evidence that multi-timeframe context is useless. The current HTF uses the
+current partial HTF candle's close vs open, with fixed/calendar blocks; it does
+not use higher-timeframe 2U/2D structure or pivots. Do not conclude "MTFA does
+not work" from this; conclude "this mechanical color filter does not add value."
+
+What the evidence does support:
+
+- **Working:** D1 candle classification; **compression followed by a breakout**;
+  specifically `2-1` and `3-1`. Broad cross-pair diversification; long side
+  stronger than short; structural target; intrabar trigger.
+- **Marginal:** `1-2`, `2-2`, `3-2`; they produce most of the trades but much
+  less edge per trade.
+- **Not working:** the HTF color filter as implemented; H1/H4 after costs; close
+  entry.
+- **To investigate, not yet validated:** structural HTF continuity using 2U/2D
+  sequences instead of candle color; volatility/session regime filters;
+  per-setup risk allocation; currency-exposure/correlation caps; exact broker
+  feed; forward paper trading.
+
 ## Info cards
 
 ### Command cards
 
-> **BACKTEST**  `bun run backtest --tf D1`
->
-> Runs the frozen mechanical Strat rule on one pair/timeframe. Simulates
-> breakout entries, stops, targets, costs, and swap with one position per pair.
->
-> **Reads:** `data/*.json`, `data/broker/*.csv`, `data/rates/*.json`  
-> **Writes:** `results/<label>.json`, `results/<label>_trades.csv`  
-> **Use when:** Testing one pair, one timeframe, or a pre-specified variant.  
-> **Key flags:** `--data`, `--tf`, `--setups`, `--htf`, `--entry`, `--target`
+<table>
+<tr>
+<td width="50%" valign="top">
 
-> **WALK-FORWARD**  `bun run walkforward ...`
->
-> Splits the date range into contiguous folds, runs the frozen rule on each
-> pair and fold, and aggregates the out-of-sample trades. No parameters are
-> fitted per fold; this is stability testing, not optimization.
->
-> **Reads:** CSV/JSON files from `--data-dir`  
-> **Writes:** `results/wf_<PAIR>_<fold>.json`, `results/walkforward_summary.json`  
-> **Use when:** You need period-by-period evidence instead of one full-sample
-> number, or you need to see whether one regime carries the result.
+<b>BACKTEST</b><br>
+<code>bun run backtest --tf D1</code><br><br>
+Runs the frozen rule on one pair/timeframe: breakout entry, stop, target, costs,
+swap, one position per pair.<br><br>
+<b>Reads:</b> <code>data/*.json</code>, <code>data/broker/*.csv</code>,
+<code>data/rates/*.json</code><br>
+<b>Writes:</b> <code>results/&lt;label&gt;.json</code>,
+<code>results/&lt;label&gt;_trades.csv</code><br>
+<b>Use when:</b> testing one pair, timeframe, or pre-specified variant.<br>
+<b>Key flags:</b> <code>--data --tf --setups --htf --entry --target</code>
 
-> **SWEEP**  `bun run sweep`
->
-> Runs the D1 backtest across every D1 file and prints one comparison table.
-> Variants can be selected with `--variants default,all,reversal,2r,close`.
->
-> **Reads:** `data/*_D1.json`  
-> **Writes:** nothing by default (it uses `--no-save`)  
-> **Use when:** Screening pairs or variants before a full walk-forward.
+</td>
+<td width="50%" valign="top">
 
-> **ROBUSTNESS**  `bun run robustness --data ... --tf D1`
->
-> Runs the five pre-specified variants on one pair, computes trade-level
-> bootstrap confidence intervals, and computes monthly deflated Sharpe using
-> the variants as multiple-testing trials.
->
-> **Writes:** `results/rb_*.json`, `results/robustness_summary.json`  
-> **Use when:** You want to know whether one pair's result survives
-> multiple-testing correction. This is per-pair, not portfolio-level.
+<b>WALK-FORWARD</b><br>
+<code>bun run walkforward ...</code><br><br>
+Splits dates into contiguous folds, runs the frozen rule on each pair/fold, and
+aggregates out-of-sample trades. No per-fold fitting.<br><br>
+<b>Reads:</b> files from <code>--data-dir</code><br>
+<b>Writes:</b> <code>results/wf_&lt;PAIR&gt;_&lt;fold&gt;.json</code>,
+<code>results/walkforward_summary.json</code><br>
+<b>Use when:</b> you need period-by-period evidence, not one full-sample number.<br>
+<b>Key flags:</b> <code>--pairs --folds --start --end --data-dir --template</code>
 
-> **PORTFOLIO**  `bun run portfolio --data-dir data/broker ...`
->
-> Runs the frozen strategy on all pairs, combines overlapping trades under a
-> fixed risk budget, and marks the book to market daily.
->
-> **Settings:** 0.25% risk/trade, max 2% open risk, max 8 positions  
-> **Writes:** `results/portfolio_<tag>.json`  
-> **Use when:** Evaluating the actual target: a multi-pair D1 portfolio.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
 
-> **PORTFOLIO ROBUSTNESS**  `bun run portfolio-robustness ...`
->
-> Runs the portfolio engine for the five pre-specified variants and computes
-> portfolio-level monthly deflated Sharpe using those variants as trials.
->
-> **Writes:** `results/portfolio_pf_*.json`, `results/portfolio_robustness.json`  
-> **Use when:** Applying the multiple-testing gate to the portfolio, not to a
-> single pair.
+<b>SWEEP</b><br>
+<code>bun run sweep</code><br><br>
+Runs the D1 backtest across every D1 file and prints one comparison table.<br><br>
+<b>Reads:</b> <code>data/*_D1.json</code><br>
+<b>Writes:</b> nothing by default (uses <code>--no-save</code>)<br>
+<b>Use when:</b> screening pairs or variants before a walk-forward.<br>
+<b>Key flags:</b> <code>--variants default,all,reversal,2r,close</code>
 
+</td>
+<td width="50%" valign="top">
+
+<b>ROBUSTNESS</b><br>
+<code>bun run robustness --data ... --tf D1</code><br><br>
+Runs the five pre-specified variants on one pair, computes trade bootstrap
+intervals and monthly deflated Sharpe using the variants as trials.<br><br>
+<b>Writes:</b> <code>results/rb_*.json</code>,
+<code>results/robustness_summary.json</code><br>
+<b>Use when:</b> testing one pair under multiple-testing correction.<br>
+<b>Key flags:</b> <code>--data --symbol --spread-points --point</code>
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+<b>PORTFOLIO</b><br>
+<code>bun run portfolio --data-dir data/broker ...</code><br><br>
+Runs all pairs, combines overlapping trades under a fixed risk budget, and marks
+the book to market daily.<br><br>
+<b>Settings:</b> 0.25% risk/trade, max 2% open risk, max 8 positions<br>
+<b>Writes:</b> <code>results/portfolio_&lt;tag&gt;.json</code><br>
+<b>Use when:</b> evaluating the actual multi-pair D1 target.<br>
+<b>Key flags:</b> <code>--pairs --risk-per-trade --max-open-risk --max-positions</code>
+
+</td>
+<td width="50%" valign="top">
+
+<b>PORTFOLIO ROBUSTNESS</b><br>
+<code>bun run portfolio-robustness ...</code><br><br>
+Runs the portfolio engine for the five variants and computes portfolio-level
+monthly deflated Sharpe using those variants as trials.<br><br>
+<b>Writes:</b> <code>results/portfolio_pf_*.json</code>,
+<code>results/portfolio_robustness.json</code><br>
+<b>Use when:</b> applying the multiple-testing gate to the portfolio.<br>
+<b>Key flags:</b> same as portfolio
+
+</td>
+</tr>
+</table>
 ### Metric cards: returns and risk
 
 | Abbrev. | Full name | Meaning |
