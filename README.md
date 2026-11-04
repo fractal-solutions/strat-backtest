@@ -184,6 +184,69 @@ The bot does not place orders. It uses the last completed D1 bar and the latest
 completed H1 bar, not a live tick stream. If run during the session, some
 triggers may already have fired; the status column makes that visible.
 
+### Lateness and execution
+
+The backtested edge is time-specific. A delayed fill is not a minor slippage
+difference; it materially changes the strategy. Frozen D1 portfolio, 2014-2026,
+16-pair Dukascopy feed:
+
+| Execution | CAGR | Sharpe | MaxDD |
+|---|---:|---:|---:|
+| On trigger during the next D1 bar (backtest) | 14.46% | 1.38 | -13.24% |
+| One full D1 bar late | 5.74% | 0.77 | -12.82% |
+| Two full D1 bars late | 3.41% | 0.52 | -13.55% |
+| Wait for the trigger-bar close | -3.02% | -0.49 | -42.17% |
+
+One-bar late means the same setup, but the trigger is checked one full daily bar
+after the intended trigger bar. If it is not touched then, the signal expires.
+The close-entry test waits for the trigger bar to close and fills only if the
+close is beyond the trigger.
+
+Rules for using `bun run signals`:
+
+- Treat every signal as valid for the next D1 bar only.
+- Use conditional stop orders; do not enter at market because a level was broken.
+- If the order is not filled by the end of that next session, cancel it.
+- If the UI says `TRIGGERED`, the move already happened. Do not chase it.
+- If you miss the trigger, skip that signal and wait for the next daily setup.
+- H1 status is a snapshot, not a fill. It can lag by up to an hour and does not
+  know the intrabar path.
+- Run around 02:00 GMT+3, or at least before the session, so you are not reading
+  the signal after the trigger has already fired.
+- If a position is already open, ignore new signals for that pair. No adding,
+  hedging, or reversing.
+
+### Start-date jitter
+
+Start-date jitter means moving the backtest start date by a few days or months.
+It is not the same as entering late. The setup logic after the new start date is
+unchanged; only early trades, equity, and portfolio sizing change.
+
+Frozen D1 portfolio, end fixed at 2026-10-29:
+
+| Start shift | Start date | Trades | CAGR | Sharpe | MaxDD |
+|---|---:|---:|---:|---:|---:|
+| -180 days | 2013-07-05 | 5,663 | 14.31% | 1.38 | -13.24% |
+| -90 days | 2013-10-03 | 5,558 | 14.70% | 1.40 | -13.24% |
+| -30 days | 2013-12-02 | 5,493 | 14.57% | 1.39 | -13.24% |
+| -14 days | 2013-12-18 | 5,469 | 14.62% | 1.40 | -13.24% |
+| Baseline | 2014-01-01 | 5,452 | 14.46% | 1.38 | -13.24% |
+| +14 days | 2014-01-15 | 5,437 | 14.46% | 1.38 | -13.24% |
+| +30 days | 2014-01-31 | 5,419 | 14.51% | 1.39 | -13.24% |
+| +90 days | 2014-04-01 | 5,346 | 14.68% | 1.40 | -13.24% |
+| +180 days | 2014-06-30 | 5,234 | 15.41% | 1.45 | -13.24% |
+
+Across +/-14 days, CAGR is 14.45-14.69% and Sharpe is 1.38-1.40.
+Across +/-180 days, CAGR is 14.31-15.41% and Sharpe is 1.38-1.45.
+MaxDD is unchanged because the drawdown occurs later in the sample.
+
+The +180-day result is not a free improvement. It starts on 2014-06-30 and
+skips weaker early-2014 trades, so it is sample selection, not delayed-entry
+robustness. These are overlapping samples, not independent out-of-sample tests.
+
+Start-date jitter is stable. Execution delay is not. The signal is not
+perpetual: one setup, one trigger bar, then trade management.
+
 ### Debug / troubleshooting
 
 **`Cannot find module './rules/string'` from `fastest-validator`**

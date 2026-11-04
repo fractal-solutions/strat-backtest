@@ -327,6 +327,28 @@ function card(signal) {
     });
 }
 
+function renderProtocol() {
+    const lines = [
+        `${chalk.bold.cyan('1 GENERATE')}  once after the D1 close, around 02:00 GMT+3`,
+        `${chalk.dim('            ')}fresh data only; no intraday signal polling`,
+        `${chalk.bold.cyan('2 EXECUTE ')}  stop orders for the next D1 bar only`,
+        `${chalk.dim('            ')}cancel unfilled at session end; never chase TRIGGERED`,
+        `${chalk.bold.cyan('3 MANAGE  ')}  one position per pair`,
+        `${chalk.dim('            ')}0.25% risk/trade, 2% open risk, 8 positions max`,
+        `${chalk.dim('            ')}exit stop/target/10 bars; no add, hedge, or reverse`,
+        `${chalk.dim('Paper/forward only; strict gate still fails. Rating is not sizing.')}`
+    ];
+    console.log(boxen(lines.join('\n'), {
+        title: chalk.bgYellow.black.bold(' EDGE PROTOCOL '),
+        titleAlignment: 'left',
+        width: 74,
+        padding: { top: 0, bottom: 0, left: 1, right: 1 },
+        margin: { top: 0, bottom: 1, left: 0, right: 0 },
+        borderStyle: 'double',
+        borderColor: 'yellow'
+    }));
+}
+
 function renderHeader(info) {
     const badge = info.stale ? chalk.bgYellow.black.bold(' STALE ') : chalk.bgGreen.black.bold(' FRESH ');
     const unpriced = info.unknown ? `   ${info.unknown} unpriced` : '';
@@ -486,6 +508,7 @@ async function main() {
         errors: errors.length,
         stale
     });
+    renderProtocol();
 
     if (pending.length) {
         console.log('\n' + chalk.bold.cyan('PENDING ORDERS'));
