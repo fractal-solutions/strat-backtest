@@ -398,8 +398,8 @@ function renderWatchTable(closed, watch) {
 
 function renderSignalTable(signals) {
     const table = new Table({
-        head: [chalk.bold('PAIR'), chalk.bold('R'), chalk.bold('DIR'), chalk.bold('SETUP'), chalk.bold('ENTRY'), chalk.bold('STOP'), chalk.bold('TARGET'), chalk.bold('R:R'), chalk.bold('LAST'), chalk.bold('P/L')],
-        colWidths: [8, 3, 7, 8, 9, 9, 9, 6, 9, 8],
+        head: [chalk.bold('PAIR'), chalk.bold('R'), chalk.bold('DIR'), chalk.bold('SETUP'), chalk.bold('ENTRY'), chalk.bold('STOP'), chalk.bold('TARGET'), chalk.bold('R:R'), chalk.bold('RISK'), chalk.bold('LAST'), chalk.bold('P/L')],
+        colWidths: [8, 3, 7, 8, 9, 9, 9, 6, 7, 9, 8],
         style: { head: [], border: [], compact: true },
         wordWrap: false
     });
@@ -414,6 +414,7 @@ function renderSignalTable(signals) {
             signal.stop.toFixed(signal.decimals),
             signal.target.toFixed(signal.decimals),
             signal.rr.toFixed(2),
+            signal.riskPips.toFixed(1),
             last,
             formatPnl(signal)
         ]);
@@ -515,7 +516,7 @@ async function main() {
     console.log(chalk.dim('The setup bar is the last completed D1 bar; the order is for the next bar.'));
     console.log(chalk.dim('LAST, STATUS, and P/L use the latest completed H1 bar, not a live tick.'));
     console.log(chalk.dim('WAITING = order pending. TRIGGERED = entry crossed. INVALIDATED = stop crossed.'));
-    console.log(chalk.dim('P/L is raw price movement in pips, before spread, commission, and swap.'));
+    console.log(chalk.dim('RISK and P/L are in pips. P/L is raw price movement before costs.'));
     console.log(chalk.dim('Rating: A = 2-1/3-1, B = 1-2, C = 2-2/3-2.'));
     console.log(chalk.dim('Historical 2014-2026 expectancy, not a forecast or size instruction.'));
     console.log(chalk.dim(`Generated in ${((Date.now() - started) / 1000).toFixed(1)}s.`));
