@@ -27,6 +27,72 @@ bootstrap, deflated Sharpe, and a portfolio engine with daily mark-to-market.
 | Portfolio 2008-2026 | CAGR 15.20%, Sharpe 1.44, maxDD -13.24%, DSR 0.992 **PASS** |
 | Decision | No live capital; paper trading is the only justified next step |
 
+## Setup cheat sheet
+
+The Strat label is the last two completed bars:
+`previous type - setup bar type`. The setup bar is the second bar. The next
+bar is the trigger.
+
+### Candle types
+
+| Type | Meaning |
+|---|---|
+| `1` | Inside: high is not above the previous high and low is not below the previous low. |
+| `2U` | Higher high, but not also a lower low. |
+| `2D` | Lower low, but not also a higher high. |
+| `3` | Outside: higher high and lower low. |
+
+### Sequence map
+
+```mermaid
+flowchart LR
+  A["2U or 2D"] --> B["1"] --> C["2-1"]
+  D["3"] --> E["1"] --> F["3-1"]
+  G["1"] --> H["2U or 2D"] --> I["1-2"]
+  J["2U or 2D"] --> K["2U or 2D"] --> L["2-2"]
+  M["3"] --> N["2U or 2D"] --> O["3-2"]
+```
+
+### The five traded setups
+
+| Setup | Sequence | Plain English | Historical edge |
+|---|---|---|---|
+| `2-1` | 2U/2D -> 1 | Inside/compression after a directional bar. | A: +0.464R, PF 1.80 |
+| `3-1` | 3 -> 1 | Inside after an outside/expansion bar. | A: +0.447R, PF 1.86 |
+| `1-2` | 1 -> 2U/2D | Directional bar after an inside bar. | B: +0.151R, PF 1.30 |
+| `2-2` | 2U/2D -> 2U/2D | Two directional bars in a row. | C: +0.071R, PF 1.14 |
+| `3-2` | 3 -> 2U/2D | Directional bar after an outside bar. | C: +0.081R, PF 1.16 |
+
+`1-1` (inside after inside) and a standalone `3` are detected but not traded by
+default. The edge tiers are the 2014-2026 signal-level stats from the broker-feed
+table below; they are not a forecast.
+
+The strongest pattern is compression: a directional or outside bar, then an
+inside bar (`2-1` and `3-1`), then a breakout. The `2-2` and `3-2` patterns are
+trend-continuation sequences but have much weaker per-trade expectancy.
+
+### Trigger and stop
+
+The next bar must break the setup bar high or low. Direction is also filtered
+by weekly and monthly continuity.
+
+```text
+LONG
+
+  setup high  ----------------------  BUY STOP / entry
+       |
+       |    setup bar       next bar
+       |      +-----+          |
+       |      |     |          |
+       |      +-----+          |
+       |
+  setup low   ----------------------  STOP
+```
+
+A short is the mirror: sell stop at the setup low, stop at the setup high.
+Targets are the structural 20-bar high/low with a 2R fallback, as used in the
+backtests. If both sides break in the same bar, the backtest skips the trade.
+
 ## Live D1 signal generator
 
 Run the full scan with one command:
