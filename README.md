@@ -1,7 +1,8 @@
 # The Strat backtester
 
-A dependency-free (plus `dukascopy-node` for data) backtest harness for a
-mechanical subset of **The Strat** price-action framework (Rob Smith). It
+A dependency-light backtest harness for a mechanical subset of **The Strat**
+price-action framework (Rob Smith). Data comes from `dukascopy-node`; the live
+signal UI uses `chalk`, `boxen`, and `cli-table3`. It
 classifies candles as 1 / 2U / 2D / 3, detects the common combos, applies a
 higher-timeframe continuity filter, and trades breakout triggers with structural
 stops and targets.
@@ -25,6 +26,55 @@ bootstrap, deflated Sharpe, and a portfolio engine with daily mark-to-market.
 | Portfolio 2014-2026 | CAGR 14.46%, Sharpe 1.38, maxDD -13.24%, DSR 0.930 **FAIL** |
 | Portfolio 2008-2026 | CAGR 15.20%, Sharpe 1.44, maxDD -13.24%, DSR 0.992 **PASS** |
 | Decision | No live capital; paper trading is the only justified next step |
+
+## Live D1 signal generator
+
+Run the full scan with one command:
+
+```bash
+bun run signals
+```
+
+It fetches fresh Dukascopy D1 bars for the 16-pair universe, uses the last
+completed daily bar as the setup, and prints conditional orders for the next
+session. It also fetches the latest H1 bar so each signal can be marked:
+
+- `WAITING`: trigger not reached.
+- `TRIGGERED`: H1 close is already beyond the entry.
+- `INVALIDATED`: H1 close is already beyond the stop.
+- `TARGET REACHED`: target already reached.
+
+The terminal UI has four parts:
+
+1. Header: run time, feed, last bar, next session, freshness, and counts.
+2. Pending orders: full cards with entry, stop, target, risk, R:R, HTF, and last price.
+3. Triggered/active: compact table with the same key levels.
+4. Stand down/closed: no setup, filtered setup, HTF conflict, invalidated, or target reached.
+
+Example header:
+
+```text
+last bar 2026-11-03   orders for 2026-11-04   FRESH
+4 pending   7 triggered   3 closed
+```
+
+Options:
+
+| Flag | Meaning |
+|---|---|
+| `--pairs EURUSD,GBPUSD` | Restrict the scan |
+| `--days 220` | D1 lookback in calendar days |
+| `--htf continuity` | `continuity`, `all`, `reversal`, or `none` |
+| `--setups 2-1,3-1,...` | Limit setup names |
+| `--cards` | Full cards for already-triggered signals |
+| `--offline` | Use the local CSV snapshot and mark it stale |
+| `--no-quote` | Skip the H1 last-price status |
+| `--no-color` | Disable ANSI color |
+| `--help` | Show usage |
+
+The bot does not place orders. It uses the last completed D1 bar and the latest
+completed H1 bar, not a live tick stream. If run during the session, some
+triggers may already have fired; the status column makes that visible.
 
 ## What is actually working on D1
 
@@ -348,6 +398,9 @@ bun run portfolio --data-dir data/broker --template "{pair}.csv" --symbol-csv \
 bun run portfolio-robustness --data-dir data/broker --template "{pair}.csv" \
   --start 2014-01-01 --end 2026-10-29 \
   --risk-per-trade 0.0025 --max-open-risk 0.02 --max-positions 8
+
+# 6. Fresh per-pair signal sheet (D1 orders + latest H1 status)
+bun run signals
 ```
 
 ## What the strategy is
@@ -540,6 +593,7 @@ live capital. Do not tune parameters to push DSR over the line.
 | `bun run robustness --data ...` | Trade bootstrap + per-pair monthly DSR |
 | `bun run portfolio ...` | Multi-pair portfolio simulation |
 | `bun run portfolio-robustness ...` | Portfolio variants + monthly DSR |
+| `bun run signals` | Fresh per-pair D1 signal sheet |
 
 Common backtest flags:
 
@@ -610,6 +664,7 @@ src/walkforward.js       # date-fold walk-forward
 src/robustness.js        # per-pair bootstrap/DSR
 src/portfolio.js         # multi-pair portfolio engine
 src/portfolioRobustness.js # portfolio variants + monthly DSR
+src/signals.js           # fresh D1 signal sheet + terminal UI
 STRATEGY.md              # exact mechanical rules
 data/                    # inputs (gitignored)
 results/                 # outputs (gitignored)

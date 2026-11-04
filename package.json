@@ -9,9 +9,13 @@
     "walkforward": "bun run src/walkforward.js",
     "robustness": "bun run src/robustness.js",
     "portfolio": "bun run src/portfolio.js",
-    "portfolio-robustness": "bun run src/portfolioRobustness.js"
+    "portfolio-robustness": "bun run src/portfolioRobustness.js",
+    "signals": "bun run src/signals.js"
   },
   "dependencies": {
+    "boxen": "^9.0.0",
+    "chalk": "^6.0.1",
+    "cli-table3": "^0.6.5",
     "dukascopy-node": "^1.51.1"
   }
 }
