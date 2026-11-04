@@ -519,6 +519,8 @@ async function main() {
     console.log(chalk.dim('RISK and P/L are in pips. P/L is raw price movement before costs.'));
     console.log(chalk.dim('Rating: A = 2-1/3-1, B = 1-2, C = 2-2/3-2.'));
     console.log(chalk.dim('Historical 2014-2026 expectancy, not a forecast or size instruction.'));
+    console.log(chalk.dim('Recommended daily run: around 02:00 GMT+3, after the New York close.'));
+    console.log(chalk.dim('This is a recommendation, not a rule.'));
     console.log(chalk.dim(`Generated in ${((Date.now() - started) / 1000).toFixed(1)}s.`));
 }
 

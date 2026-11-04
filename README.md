@@ -44,6 +44,12 @@ session. It also fetches the latest H1 bar so each signal can be marked:
 - `INVALIDATED`: H1 close is already beyond the stop.
 - `TARGET REACHED`: target already reached.
 
+Recommended daily run time: around **02:00 GMT+3**, after the New York daily
+close and the Dukascopy feed update. New York closes at 00:00 GMT+3 during US
+summer time and 01:00 GMT+3 during US winter time, so 02:00 GMT+3 is a safe
+year-round recommendation. This is a recommendation, not a rule; the generator
+always uses the last completed bar regardless of when it is run.
+
 Each card and table row also carries a subtle A/B/C rating:
 
 - A: `2-1` and `3-1`
@@ -408,7 +414,7 @@ bun run portfolio-robustness --data-dir data/broker --template "{pair}.csv" \
   --start 2014-01-01 --end 2026-10-29 \
   --risk-per-trade 0.0025 --max-open-risk 0.02 --max-positions 8
 
-# 6. Fresh per-pair signal sheet (D1 orders + latest H1 status)
+# 6. Fresh per-pair signal sheet (recommended around 02:00 GMT+3)
 bun run signals
 ```
 
