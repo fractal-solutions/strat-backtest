@@ -91,6 +91,44 @@ The bot does not place orders. It uses the last completed D1 bar and the latest
 completed H1 bar, not a live tick stream. If run during the session, some
 triggers may already have fired; the status column makes that visible.
 
+### Debug / troubleshooting
+
+**`Cannot find module './rules/string'` from `fastest-validator`**
+
+This is an incomplete install, not a missing repo file. `fastest-validator`
+normally ships `lib/rules/string.js`. It is common on Acode/Android because
+Bun's default hardlink install can leave partial packages on shared storage.
+
+Reinstall with the copyfile backend:
+
+```bash
+rm -rf node_modules
+bun pm cache rm
+bun install --backend=copyfile
+bun run signals
+```
+
+If `bun pm cache rm` is unavailable:
+
+```bash
+rm -rf ~/.bun/install/cache
+bun install --backend=copyfile
+```
+
+If Bun still fails, install with npm and run with Bun:
+
+```bash
+rm -rf node_modules
+npm install
+bun run signals
+```
+
+Verify the package file exists:
+
+```bash
+ls node_modules/fastest-validator/lib/rules/string.js
+```
+
 ## What is actually working on D1
 
 These are all **signal-level** results across the 16-pair Dukascopy broker feed,
