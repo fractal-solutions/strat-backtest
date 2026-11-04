@@ -513,6 +513,7 @@ monthly deflated Sharpe using those variants as trials.<br><br>
 </td>
 </tr>
 </table>
+
 ### Metric cards: returns and risk
 
 | Abbrev. | Full name | Meaning |
