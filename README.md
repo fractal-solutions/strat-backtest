@@ -66,6 +66,11 @@ The terminal UI has four parts:
 3. Triggered/active: compact table with the same key levels.
 4. Stand down/closed: no setup, filtered setup, HTF conflict, invalidated, or target reached.
 
+Targets use the same default structural logic as the backtests: look back 20
+completed bars, use the highest high for longs or lowest low for shorts, require
+the level to be at least 0.5R beyond entry, and fall back to 2R otherwise. The
+portfolio results use this default structural mode, not the forced 2R override.
+
 Example header:
 
 ```text
