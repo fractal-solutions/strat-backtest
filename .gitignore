@@ -2,3 +2,4 @@ node_modules/
 data/
 results/
 *.log
+tmp_*.mjs
