@@ -4,6 +4,12 @@
 // filled trade using a limit or market entry, a stop, a target, and a time
 // limit. They are conservative on the fill bar: if the bar that fills the
 // limit also trades through the stop, the stop is assumed first.
+//
+// Trade management modes:
+//   pdf      - one stop, one target (the 2022 PDF's range target)
+//   partial  - take `partialFraction` at `partialAt` R, move the stop to
+//              breakeven, let the rest run to the target
+//   trail    - partial + breakeven + trail the runner behind the previous bar
 
 function positionFor(ctx, { direction, entryIndex, entry, stop, target, risk, setup, htf }) {
     const entryCost = ctx.bars.spreadPrice / 2 + entry * ctx.friction;
@@ -23,6 +29,97 @@ function positionFor(ctx, { direction, entryIndex, entry, stop, target, risk, se
     };
 }
 
+function manageExit(ctx, position, bars, startIndex, endIndex, options) {
+    const {
+        management = 'pdf',
+        partialAt = 1,
+        partialFraction = 0.5,
+        breakeven = true,
+        trail = false
+    } = options;
+    const direction = position.direction;
+    const entry = position.entryRaw;
+    const risk = position.risk;
+    const target = position.targetRaw;
+    const useTrail = trail || management === 'trail';
+    let stop = position.stopRaw;
+
+    let partialDone = false;
+    let partialExitPrice = 0;
+    let partialExitIndex = -1;
+    let runnerExit = null;
+    let runnerReason = null;
+    let runnerIndex = -1;
+
+    for (let j = startIndex; j <= endIndex; j++) {
+        // Stop first, always.
+        if (direction > 0 ? bars.low[j] <= stop : bars.high[j] >= stop) {
+            runnerExit = stop;
+            runnerReason = 'stop';
+            runnerIndex = j;
+            break;
+        }
+
+        // Partial at the configured R.
+        if (management !== 'pdf' && !partialDone) {
+            const partialPrice = direction > 0 ? entry + partialAt * risk : entry - partialAt * risk;
+            const hit = direction > 0 ? bars.high[j] >= partialPrice : bars.low[j] <= partialPrice;
+            if (hit) {
+                partialDone = true;
+                partialExitPrice = partialPrice;
+                partialExitIndex = j;
+                if (breakeven) stop = entry;
+            }
+        }
+
+        // Target.
+        if (direction > 0 ? bars.high[j] >= target : bars.low[j] <= target) {
+            runnerExit = target;
+            runnerReason = 'target';
+            runnerIndex = j;
+            break;
+        }
+
+        // Trail the runner behind the previous bar after the partial.
+        if (partialDone && useTrail && j > startIndex) {
+            if (direction > 0) stop = Math.max(stop, bars.low[j - 1]);
+            else stop = Math.min(stop, bars.high[j - 1]);
+        }
+    }
+
+    if (runnerExit === null) {
+        runnerExit = bars.close[endIndex];
+        runnerReason = 'time';
+        runnerIndex = endIndex;
+    }
+
+    if (!partialDone || management === 'pdf') {
+        return ctx.makeTrade(position, runnerExit, runnerReason, runnerIndex);
+    }
+
+    const runnerTrade = ctx.makeTrade(position, runnerExit, runnerReason, runnerIndex);
+    const entryCost = bars.spreadPrice / 2 + entry * ctx.friction;
+    const partialExitCost = bars.spreadPrice / 2 + partialExitPrice * ctx.friction;
+    const partialNetBeforeEntry = partialAt - partialExitCost / risk;
+    const netR = partialFraction * partialNetBeforeEntry
+        + (1 - partialFraction) * runnerTrade.netR
+        - partialFraction * entryCost / risk;
+    const grossR = partialFraction * partialAt + (1 - partialFraction) * runnerTrade.grossR;
+
+    return {
+        ...runnerTrade,
+        netR,
+        grossR,
+        costR: grossR - netR,
+        reason: `partial+${runnerReason}`,
+        partialR: partialNetBeforeEntry,
+        partialFraction,
+        partialAt,
+        partialExitIndex,
+        partialExitDate: ctx.dateOf(partialExitIndex)
+    };
+}
+
 export function simulateLimit(ctx, {
     signalIndex,
     direction,
@@ -32,7 +129,12 @@ export function simulateLimit(ctx, {
     validBars = 8,
     maxHold = 48,
     setup = 'ict',
-    htf = []
+    htf = [],
+    management = 'pdf',
+    partialAt = 1,
+    partialFraction = 0.5,
+    breakeven = true,
+    trail = false
 }) {
     const { bars, end } = ctx;
     if (![entry, stop, target].every(v => Number.isFinite(v) && v > 0)) return null;
@@ -65,16 +167,9 @@ export function simulateLimit(ctx, {
     if (direction < 0 && bars.high[fillIndex] >= stop) return ctx.makeTrade(position, stop, 'stop', fillIndex);
 
     const holdEnd = Math.min(end - 1, fillIndex + maxHold);
-    for (let j = fillIndex + 1; j <= holdEnd; j++) {
-        if (direction > 0) {
-            if (bars.low[j] <= stop) return ctx.makeTrade(position, stop, 'stop', j);
-            if (bars.high[j] >= target) return ctx.makeTrade(position, target, 'target', j);
-        } else {
-            if (bars.high[j] >= stop) return ctx.makeTrade(position, stop, 'stop', j);
-            if (bars.low[j] <= target) return ctx.makeTrade(position, target, 'target', j);
-        }
-    }
-    return ctx.makeTrade(position, bars.close[holdEnd], 'time', holdEnd);
+    return manageExit(ctx, position, bars, fillIndex + 1, holdEnd, {
+        management, partialAt, partialFraction, breakeven, trail
+    });
 }
 
 export function simulateMarket(ctx, {
@@ -84,7 +179,12 @@ export function simulateMarket(ctx, {
     target,
     maxHold = 24,
     setup = 'ict',
-    htf = []
+    htf = [],
+    management = 'pdf',
+    partialAt = 1,
+    partialFraction = 0.5,
+    breakeven = true,
+    trail = false
 }) {
     const { bars, end } = ctx;
     const entry = bars.close[signalIndex];
@@ -95,14 +195,7 @@ export function simulateMarket(ctx, {
     if (!(risk > 0)) return null;
     const position = positionFor(ctx, { direction, entryIndex: signalIndex, entry, stop, target, risk, setup, htf });
     const holdEnd = Math.min(end - 1, signalIndex + maxHold);
-    for (let j = signalIndex + 1; j <= holdEnd; j++) {
-        if (direction > 0) {
-            if (bars.low[j] <= stop) return ctx.makeTrade(position, stop, 'stop', j);
-            if (bars.high[j] >= target) return ctx.makeTrade(position, target, 'target', j);
-        } else {
-            if (bars.high[j] >= stop) return ctx.makeTrade(position, stop, 'stop', j);
-            if (bars.low[j] <= target) return ctx.makeTrade(position, target, 'target', j);
-        }
-    }
-    return ctx.makeTrade(position, bars.close[holdEnd], 'time', holdEnd);
+    return manageExit(ctx, position, bars, signalIndex + 1, holdEnd, {
+        management, partialAt, partialFraction, breakeven, trail
+    });
 }

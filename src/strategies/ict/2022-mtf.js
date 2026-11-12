@@ -61,6 +61,15 @@ export function configure(args) {
         // Signal generation follows the PDF. RR/cost/ATR floors are execution
         // filters; enable them with --strict to get the tradable subset.
         strict: args.strict === true,
+        // PDF trade management: the 2022 model uses a single range target.
+        // 'partial' takes half at 1R and moves to breakeven; 'trail' also
+        // trails the runner behind the previous bar (the article's breaker
+        // management).
+        management: String(args['trade-management'] ?? 'pdf').toLowerCase(),
+        partialAt: Number(args['partial-at'] ?? 1),
+        partialFraction: Number(args['partial-fraction'] ?? 0.5),
+        breakeven: args['no-breakeven'] !== true,
+        trail: args['trail'] === true,
         logSignals: args.signals === true,
         debug: args.debug === true
     };
@@ -116,26 +125,71 @@ function sessionExtreme(bars, h, startHour, direction) {
     return Number.isFinite(extreme) ? extreme : (direction > 0 ? bars.low[h] : bars.high[h]);
 }
 
-function findPdArray(ltf, direction, start, mssIndex, config) {
-    // 1. FVG in the displacement leg.
-    for (let i = mssIndex; i >= start; i--) {
-        const fvg = direction > 0 ? bullishFvgAt(ltf, i) : bearishFvgAt(ltf, i);
-        if (fvg) return { ...fvg, type: 'fvg' };
-    }
-    // 2. Order block (last opposite candle before the MSS).
-    const ob = orderBlockBefore(ltf, mssIndex, direction, config.pdLookbackLtf);
-    if (ob) return { ...ob, type: 'ob' };
-    // 3. Inverse FVG: an opposite gap that price has closed through.
-    for (let i = mssIndex - 1; i >= Math.max(2, mssIndex - config.pdLookbackLtf); i--) {
-        const inv = direction > 0 ? bearishFvgAt(ltf, i) : bullishFvgAt(ltf, i);
-        if (!inv) continue;
-        const broken = direction > 0 ? ltf.close[mssIndex] > inv.high : ltf.close[mssIndex] < inv.low;
-        if (broken) return { ...inv, type: 'inverse-fvg' };
+function findBreaker(ltf, direction, start, mssIndex, config) {
+    // A breaker is an order block that failed and is retested from the other
+    // side. For a long: a prior up candle whose high the MSS close broke.
+    for (let i = mssIndex - 1; i >= Math.max(1, mssIndex - config.pdLookbackLtf); i--) {
+        if (direction > 0) {
+            const isUp = ltf.close[i] > ltf.open[i];
+            if (isUp && ltf.close[mssIndex] > ltf.high[i]) {
+                return { index: i, low: ltf.low[i], high: ltf.high[i], mid: (ltf.low[i] + ltf.high[i]) / 2, type: 'breaker' };
+            }
+        } else {
+            const isDown = ltf.close[i] < ltf.open[i];
+            if (isDown && ltf.close[mssIndex] < ltf.low[i]) {
+                return { index: i, low: ltf.low[i], high: ltf.high[i], mid: (ltf.low[i] + ltf.high[i]) / 2, type: 'breaker' };
+            }
+        }
     }
     return null;
 }
 
-function findLtfSetup(ctx, direction, htfRange, sweepExtreme, start, end, config, funnel, stopMode = 'session', sessionStartHour = 7) {
+function findPdArray(ltf, direction, start, mssIndex, config, priority = 'fvg') {
+    const findFvg = () => {
+        for (let i = mssIndex; i >= start; i--) {
+            const fvg = direction > 0 ? bullishFvgAt(ltf, i) : bearishFvgAt(ltf, i);
+            if (fvg) return { ...fvg, type: 'fvg' };
+        }
+        return null;
+    };
+    const findOb = () => {
+        const ob = orderBlockBefore(ltf, mssIndex, direction, config.pdLookbackLtf);
+        return ob ? { ...ob, type: 'ob' } : null;
+    };
+    const findInverse = () => {
+        for (let i = mssIndex - 1; i >= Math.max(2, mssIndex - config.pdLookbackLtf); i--) {
+            const inv = direction > 0 ? bearishFvgAt(ltf, i) : bullishFvgAt(ltf, i);
+            if (!inv) continue;
+            const broken = direction > 0 ? ltf.close[mssIndex] > inv.high : ltf.close[mssIndex] < inv.low;
+            if (broken) return { ...inv, type: 'inverse-fvg' };
+        }
+        return null;
+    };
+    const findBrk = () => findBreaker(ltf, direction, start, mssIndex, config);
+    const orders = {
+        fvg: [findFvg, findBrk, findOb, findInverse],
+        breaker: [findBrk, findFvg, findOb, findInverse],
+        ob: [findOb, findFvg, findBrk, findInverse],
+        inverse: [findInverse, findFvg, findBrk, findOb]
+    };
+    for (const find of (orders[priority] ?? orders.fvg)) {
+        const pd = find();
+        if (pd) return pd;
+    }
+    return null;
+}
+
+function managementArgs(config) {
+    return {
+        management: config.management,
+        partialAt: config.partialAt,
+        partialFraction: config.partialFraction,
+        breakeven: config.breakeven,
+        trail: config.trail
+    };
+}
+
+function findLtfSetup(ctx, direction, htfRange, sweepExtreme, start, end, config, funnel, stopMode = 'session', sessionStartHour = 7, pdPriority = 'fvg') {
     const ltf = ctx.bars;
     if (end <= start + 2) return null;
 
@@ -162,7 +216,7 @@ function findLtfSetup(ctx, direction, htfRange, sweepExtreme, start, end, config
     }
 
     // PD array: FVG, order block, or inverse FVG created by the displacement.
-    const pd = findPdArray(ltf, direction, start, mssIndex, config);
+    const pd = findPdArray(ltf, direction, start, mssIndex, config, pdPriority);
     if (!pd) return null;
     funnel.pd++;
     if (config.logSignals) {
@@ -393,7 +447,7 @@ export function run(ctx) {
 
             const sweepExtreme = sessionExtreme(structure, h, ctx.config.londonOpen, bias);
             logEvent({ stage: 'sweep', time: sweepConfirmSec * 1000, date, direction: bias, price: sweepExtreme, rangeHigh: range.high, rangeLow: range.low });
-            const setup = findLtfSetup(ctx, bias, range, sweepExtreme, startLtf, endLtf, ctx.config, funnel, 'session', ctx.config.londonOpen);
+            const setup = findLtfSetup(ctx, bias, range, sweepExtreme, startLtf, endLtf, ctx.config, funnel, 'session', ctx.config.londonOpen, 'fvg');
             if (!setup) continue;
             funnel.setup++;
             const trade = simulateLimit(ctx, {
@@ -404,6 +458,7 @@ export function run(ctx) {
                 target: setup.target,
                 validBars: ctx.config.validBarsLtf,
                 maxHold: ctx.config.maxHoldLtf,
+                ...managementArgs(ctx.config),
                 setup: setup.setup
             });
             if (!trade) continue;
@@ -426,6 +481,7 @@ export function run(ctx) {
                     stop: setup.stop,
                     target: setup.target,
                     maxHold: ctx.config.maxHoldLtf,
+                    ...managementArgs(ctx.config),
                     setup: setup.setup
                 });
                 if (!trade) continue;
@@ -443,7 +499,7 @@ export function run(ctx) {
                 funnel.sweep++;
                 const sweepExtreme = sessionExtreme(structure, h, ctx.config.nyOpen, bias);
                 logEvent({ stage: 'sweep', time: sweepConfirmSec * 1000, date, direction: bias, price: sweepExtreme, rangeHigh: range.high, rangeLow: range.low, session: 'ny' });
-                const setup = findLtfSetup(ctx, bias, range, sweepExtreme, startLtf, endLtf, ctx.config, funnel, 'pd', ctx.config.nyOpen);
+                const setup = findLtfSetup(ctx, bias, range, sweepExtreme, startLtf, endLtf, ctx.config, funnel, 'pd', ctx.config.nyOpen, 'breaker');
                 if (!setup) continue;
                 funnel.setup++;
                 const trade = simulateLimit(ctx, {
@@ -454,6 +510,7 @@ export function run(ctx) {
                     target: setup.target,
                     validBars: ctx.config.validBarsLtf,
                     maxHold: ctx.config.maxHoldLtf,
+                    ...managementArgs(ctx.config),
                     setup: setup.setup
                 });
                 if (!trade) continue;

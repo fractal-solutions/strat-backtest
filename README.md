@@ -940,6 +940,9 @@ Common backtest flags:
 | `--context-data` | Optional context series (D1/H1) for the daily bias |
 | `--structure-source` | `htf` or `ltf`; use `ltf` for a precise 04:00–07:00 range on M5 |
 | `--htf-filter` | `ema` (H4 trend filter) or `none` |
+| `--trade-management` | `pdf` (single target), `partial`, or `trail` |
+| `--partial-at`, `--partial-fraction` | Partial trigger in R and fraction (default 1R, 50%) |
+| `--no-breakeven`, `--trail` | Disable breakeven or enable the one-bar trail |
 | `--strict` | Apply RR/ATR/cost execution floors (MTF model) |
 | `--zone-mode` | `range` (PDF default) or `leg` premium/discount |
 | `--signals` | Write the full signal funnel to `_signals.csv/json` |
