@@ -23,9 +23,11 @@ bootstrap, deflated Sharpe, and a portfolio engine with daily mark-to-market.
 | Rule | Mechanical Strat, D1, frozen |
 | Timeframes | H1/H4 fail after costs; D1 is the only viable timeframe |
 | Broker-feed walk-forward | 4/4 folds positive, +0.148R, PF 1.29 |
-| Portfolio 2014-2026 | CAGR 14.46%, Sharpe 1.38, maxDD -13.24%, DSR 0.930 **FAIL** |
-| Portfolio 2008-2026 | CAGR 15.20%, Sharpe 1.44, maxDD -13.24%, DSR 0.992 **PASS** |
-| Decision | No live capital; paper trading is the only justified next step |
+| Legacy portfolio 2014-2026 (look-ahead) | CAGR 14.46%, Sharpe 1.38, maxDD -13.24%, DSR 0.930 — **regression fixture only** |
+| Legacy portfolio 2008-2026 (look-ahead) | CAGR 15.20%, Sharpe 1.44, maxDD -13.24%, DSR 0.992 — **regression fixture only** |
+| Honest Strat 2014-2026 (`--ambiguous stop`) | CAGR -10.82%, Sharpe -1.02, PF 0.80, maxDD -85.60% |
+| Honest signal-level (H1 first-touch) | PF 0.93 overall; Sunday-only PF 0.89 |
+| Decision | No validated edge; no live capital |
 
 ## Setup cheat sheet
 
@@ -303,6 +305,72 @@ table shows which Strat setups carry the edge before portfolio sizing.
 `Total net R` sums each trade at 1R risk; it is not portfolio PnL. The edge is
 concentrated in **inside-bar-after-directional/outside breakouts** (`2-1`,
 `3-1`). `2-2` and `3-2` trade often but are only marginally profitable.
+
+### Session integrity: the Sunday partial bar
+
+The Dukascopy D1 feed emits the week open as its own **Sunday row**, roughly two
+hours of trading. That row is not a daily bar. Across the 16-pair sample its
+median range is **0.39 ATR** versus **1.06-1.16 ATR** for a real session, so a
+structural stop placed at its high/low is about 3x tighter. The median target is
+still ~2.1-2.5 ATR on every weekday, so Sunday setups show a median RR of
+**4.8** against **2.0** elsewhere, at a similar target hit rate.
+
+Consequences for the frozen headline:
+
+- Sunday-setup → Monday-entry trades are ~8% of the sample but ~56% of net R
+  (PF ~2.4).
+- Excluding them drops the full-history portfolio from CAGR 15.20%/Sharpe 1.44
+  to roughly 7-9% CAGR / 0.8-0.9 Sharpe, depending on the HTF variant.
+- Friday-setup → Monday-entry trades are negative in both eras (about -0.15R,
+  PF 0.77): uncompensated weekend gap risk.
+
+The effect is not a gap-fill bug. It is two separate problems.
+
+**1. Bar construction.** The Sunday row is a 3-hour session, not a day, so its
+stop is ~3x too tight. `src/session.js` fixes this measurement with
+`--session merge-sunday` / `drop-sunday`.
+
+**2. Look-ahead in the entry rule.** `src/backtest.js` skips any entry day whose
+high/low trades through *both* sides of the setup:
+
+```js
+if (longHit && shortHit) continue;
+```
+
+In live trading you place a bracket and enter on the first touch; you do not know
+the other side will also be hit until the day closes. The engine uses that
+end-of-day knowledge to skip the trade. On the Sunday bar this is decisive: **58%
+of Sunday setups are engulfed by Monday**, and those would have been stopped 97%
+of the time.
+
+Measured on 8,174 Sunday `2-1`/`3-1` setups across 16 pairs with H1 first-touch
+execution:
+
+| Group | Trades | Win | Avg net R | PF |
+|---|---:|---:|---:|---:|
+| D1-eligible (engine trades it) | 3,400 | 45.0% | +1.32 | 3.10 |
+| D1-engulfed (engine skips it) | 4,774 | 2.6% | -1.12 | 0.02 |
+| **All executable (first touch)** | **8,174** | **20.2%** | **-0.105** | **0.89** |
+
+The split holds in every era: executable PF 0.87 (2008-13), 0.85 (2014-19),
+0.93 (2020-26). The Sunday edge is the skip, not the bar.
+
+`--ambiguous` makes the choice explicit:
+
+- `--ambiguous skip` (default) is the legacy look-ahead behaviour. It is kept
+  only so the frozen baseline still reproduces.
+- `--ambiguous stop` is the honest D1-only bound: an engulfed day is counted as
+  a stopped trade, because whichever side is touched first, the other side is
+  the stop.
+
+On EURUSD 2014-2026 the single-pair baseline goes from PF 1.49 / Sharpe 0.72 to
+PF 0.95 / Sharpe -0.11 under `--ambiguous stop`. The same bias affects every
+weekday: 20% of all baseline signals are engulfed. **Treat the frozen headline
+as an upper bound, not an expectation.**
+
+The session-clean core still fails the pre-registered DSR gate, but the bigger
+problem is the entry rule, not the Sunday row. Re-run `bun run validate` with an
+honest ambiguity mode before quoting any D1 result.
 
 ### Direction split
 
@@ -592,7 +660,7 @@ bun install
 bun run fetch-broker
 
 # 2. Single-pair D1 backtest
-bun run backtest --tf D1
+bun run backtest --strategy strat --tf D1
 
 # 3. Broker-feed walk-forward
 bun run walkforward --data-dir data/broker --template "{pair}.csv" --symbol-csv \
@@ -613,6 +681,48 @@ bun run portfolio-robustness --data-dir data/broker --template "{pair}.csv" \
 # 6. Fresh per-pair signal sheet (recommended around 02:00 GMT+3)
 bun run signals
 ```
+
+## Strategy framework
+
+The engine is strategy-agnostic. A strategy module owns signals, entries,
+stops, and targets; `src/engine.js` owns data loading, session handling,
+spread/commission/slippage, financing, date windows, stats, and result files.
+`portfolio.js` and the other tools consume the resulting trade list, so every
+strategy gets the same portfolio, walk-forward, and DSR treatment.
+
+```bash
+bun run backtest --list-strategies
+bun run backtest --strategy strat --tf D1
+bun run backtest --strategy ict-2022 --tf H1 --data data/h1/EURUSD.csv --symbol EURUSD
+bun run portfolio --strategy ict-2022 --data-dir data/h1 --template "{pair}.csv" --tf H1 ...
+```
+
+| Strategy | Idea |
+|---|---|
+| `strat` | The original mechanical Strat. Default `--ambiguous stop` (honest); `skip` is the legacy look-ahead mode. |
+| `ict-2022` | ICT 2022 model: daily bias, NY-midnight-to-London range, London sweep, MSS + displacement, PD-array retest, range target, plus the NY OTE continuation. |
+| `ict-2022-mtf` | Same model with true HTF→LTF execution: HTF bias/range/sweep, LTF MSS + PD-array entry. Requires `--htf-data`. |
+| `ict-sweep-ob` | Generic liquidity sweep into an order block. |
+| `ict-fvg` | Fair-value-gap continuation with an EMA bias filter. |
+| `ict-breaker` | Breaker-block reversal: an order block fails, then retests. |
+| `ict-po3` | Power-of-three: Asian range, London sweep, NY target. |
+| `ict-killzone` | Daily-bias + killzone scalp: micro sweep into a micro order block. |
+
+To add a strategy, create `src/strategies/<name>.js` with `id`, `label`,
+`configure(args)`, and `run(ctx)`, then register it in
+`src/strategies/index.js`. See `docs/FRAMEWORK.md` for the trade contract and an
+example.
+
+Every serious trial should be recorded so the deflated Sharpe is penalised for
+the full search, not just the winner:
+
+```bash
+bun run portfolio ... --record-trial "ict-2022-london-h1"
+```
+
+That appends the monthly Sharpe to `results/trials.json`; `validate` and
+`trials.js` use the whole list. See `docs/ICT_2022.md` for the exact ICT rules
+and their mechanical mapping.
 
 ## What the strategy is
 
@@ -750,6 +860,10 @@ portfolio is the relevant object.
 
 ## Portfolio: 16 D1 pairs
 
+> **Caveat:** the figures in this section use the legacy `--ambiguous skip` entry
+> rule, which is look-ahead. They are a regression fixture, not a tradable
+> result. See *Session integrity* and *Decision*.
+
 Settings: 0.25% risk per trade, maximum 2% open risk, maximum 8 concurrent
 positions, one position per pair, daily mark-to-market.
 
@@ -786,36 +900,60 @@ is a robustness check, not a pristine pre-registered test.
 
 ## Decision
 
-The strict pre-registered gate fails by 0.02: 2014-2026 portfolio monthly DSR is
-0.930 against a 0.95 threshold. Per the rule, **do not go live.**
+The pre-registered gate failed, and the later look-ahead audit is worse. Once
+ambiguous entry days are treated honestly (`--ambiguous stop`), the 2014-2026
+16-pair portfolio is negative: CAGR -10.82%, Sharpe -1.02, PF 0.80. The H1
+first-touch signal-level estimate is PF 0.93 overall and 0.89 on Sunday setups.
+**There is no validated edge in the original rule.** Do not paper trade it as if
+the old headline were real.
 
-The evidence is strong enough to justify a **prospective paper-trading test** on
-forward data with the frozen rule and portfolio settings. It does not justify
-live capital. Do not tune parameters to push DSR over the line.
+The old 14.46% / 1.38 figures are kept only as a regression fixture. They
+reproduce exactly under `--ambiguous skip`, which is the look-ahead mode. They
+are not an expectation.
+
+The useful outcome of this work is the measurement framework: `src/engine.js`,
+the strategy registry, the ICT plug-ins, and the trial registry. New ideas can
+now be tested without repeating the old rule's mistake.
 
 ## Commands
 
 | Command | Purpose |
 |---|---|
 | `bun run fetch-broker` | Download Dukascopy D1 feed |
-| `bun run backtest --tf D1` | Single-pair backtest |
+| `bun run strategies` | List registered strategies |
+| `bun run backtest --strategy strat --tf D1` | Single-pair backtest |
 | `bun run sweep` | D1 cross-pair table |
 | `bun run walkforward ...` | Date-based walk-forward |
 | `bun run robustness --data ...` | Trade bootstrap + per-pair monthly DSR |
 | `bun run portfolio ...` | Multi-pair portfolio simulation |
 | `bun run portfolio-robustness ...` | Portfolio variants + monthly DSR |
+| `bun run validate` | Legacy vs honest Strat, full history + OOS |
 | `bun run signals` | Fresh per-pair D1 signal sheet |
+| `bun test` | Session, registry, and ICT primitive tests |
 
 Common backtest flags:
 
 | Flag | Meaning |
 |---|---|
+| `--strategy` | Registered strategy id, default `strat` |
+| `--htf-data` | Higher-timeframe series for `ict-2022-mtf` |
+| `--context-data` | Optional context series (D1/H1) for the daily bias |
+| `--structure-source` | `htf` or `ltf`; use `ltf` for a precise 04:00–07:00 range on M5 |
+| `--htf-filter` | `ema` (H4 trend filter) or `none` |
+| `--strict` | Apply RR/ATR/cost execution floors (MTF model) |
+| `--zone-mode` | `range` (PDF default) or `leg` premium/discount |
+| `--signals` | Write the full signal funnel to `_signals.csv/json` |
+| `--debug` | Print the ICT signal funnel |
 | `--data` | JSON or CSV bars |
-| `--tf` | H1, H4, D1 |
+| `--tf` | H1, H4, D1 (ICT 2022: M15/M5 preferred) |
 | `--setups` | Comma list of setups |
 | `--htf` | continuity, reversal, all, none |
 | `--entry` | intrabar, close |
 | `--target` | structural, 2r |
+| `--session` | raw, merge-sunday, drop-sunday |
+| `--exclude-setup-dow` | Skip setups on weekdays, e.g. `0,5` (0 = Sunday) |
+| `--preset` | `core` = 2-1/3-1, htf all, merge-sunday, no Friday |
+| `--ambiguous` | `skip` (legacy, look-ahead) or `stop` (honest bound) |
 | `--blocks` | HTF block sizes, e.g. `4,24` |
 | `--max-hold` | Time exit in bars |
 | `--lookback` | Structural target lookback |
@@ -837,6 +975,10 @@ Portfolio flags:
 | `--risk-per-trade` | Fraction of equity risked per trade (default 0.0025) |
 | `--max-open-risk` | Total open risk cap (default 0.02) |
 | `--max-positions` | Concurrent position cap (default 8) |
+| `--session`, `--exclude-setup-dow`, `--preset`, `--ambiguous` | Forwarded to per-pair backtests |
+| `--vol-target` | Annualized vol target, e.g. `0.10` (causal 63-day estimate) |
+| `--vol-lookback`, `--vol-floor`, `--vol-cap` | Vol-target estimator and sizing clamp |
+| `--cost-mult` | Stress multiplier for spread/slippage/financing |
 | `--tag` | Portfolio result tag |
 
 ## Caveats
@@ -846,8 +988,11 @@ Portfolio flags:
 - H1/H4 fail after costs. Do not revive them without a new pre-registration.
 - The broker feed is a Dukascopy export, not the user's broker.
 - HTF uses calendar weeks/months when timestamps exist; otherwise fixed blocks.
-- No correlation/currency-exposure cap, vol targeting, bid/ask, market impact,
-  or live execution layer.
+- The Dukascopy D1 feed includes a Sunday partial bar. `--session merge-sunday`
+  repairs it structurally, but only a tick/M1 rebuild against the real broker
+  session can confirm the week-open behaviour.
+- No correlation/currency-exposure cap or market impact. Vol targeting exists
+  but is a sizing overlay, not a validated edge.
 - Deflated Sharpe uses five variants as trials; the trial set is small.
 - The full-history pass is post-hoc; the pre-registered window fails.
 - No pristine holdout remains on this dataset. Forward data is the clean test.
@@ -856,30 +1001,45 @@ Portfolio flags:
 
 1. Paper trade the frozen portfolio on forward data; no parameter changes.
 2. Validate on your exact broker D1 feed via the CSV loader.
-3. Recompute the monthly DSR prospectively after enough forward months.
-4. Only if both pass, consider live capital.
-5. Portfolio improvements (currency exposure, correlation, vol targeting) are
-   new hypotheses and need their own validation.
+3. Run `bun run validate` after any change; it compares the frozen baseline with
+   the session-clean core on full history and OOS, including DSR and tails.
+4. Rebuild the week-open effect on M1/ticks against the real broker session
+   before giving Sunday behaviour any capital.
+5. Recompute the monthly DSR prospectively after enough forward months.
+6. Only if both pass, consider live capital.
+7. Portfolio improvements (currency exposure, correlation, new markets) are new
+   hypotheses and need their own validation.
 
 ## File layout
 
 ```
 src/fetchBroker.js       # Dukascopy D1 feed download
-src/data.js              # JSON/CSV bar loader
+src/data.js              # JSON/CSV bar loader (dates or Unix timestamps)
 src/carry.js             # lagged rate/carry lookup
-src/strat.js             # candle types, setups, HTF, targets
+src/strat.js             # candle types, setups, HTF, targets (Strat primitives)
 src/stats.js             # metrics, bootstrap, deflated Sharpe
-src/backtest.js          # single-pair backtest engine
+src/session.js           # session-aware D1 normalization (Sunday partial bar)
+src/engine.js            # generic engine: data, costs, session, stats, result files
+src/backtest.js          # thin CLI: --strategy <id>
+src/strategies/index.js  # strategy registry
+src/strategies/strat.js  # the original Strat rule as a plug-in
+src/strategies/ict/      # ICT 2022 model, sweep/OB, FVG, power-of-three
+src/trials.js            # trial registry for deflated Sharpe
 src/sweep.js             # D1 cross-pair sweep
 src/walkforward.js       # date-fold walk-forward
 src/robustness.js        # per-pair bootstrap/DSR
-src/portfolio.js         # multi-pair portfolio engine
+src/portfolio.js         # multi-pair portfolio engine + vol targeting
 src/portfolioRobustness.js # portfolio variants + monthly DSR
+src/validate.js          # legacy vs honest Strat, DSR + tails
 src/signals.js           # fresh D1 signal sheet + terminal UI
-STRATEGY.md              # exact mechanical rules
+docs/FRAMEWORK.md        # strategy contract and how to add one
+docs/ICT_2022.md         # PDF rules -> mechanical mapping
+test/                    # session, registry, and ICT primitive tests
+STRATEGY.md              # exact Strat mechanical rules
 data/                    # inputs (gitignored)
 results/                 # outputs (gitignored)
 ```
 
-See `STRATEGY.md` before changing any rule. The rule is frozen for the current
-validation cycle.
+The engine is strategy-agnostic. `STRATEGY.md` describes the original Strat
+rule; new strategies live in `src/strategies/`. The legacy headline is a
+regression fixture, not a validated result.

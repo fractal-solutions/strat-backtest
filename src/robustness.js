@@ -59,7 +59,7 @@ const csvArgs = data.toLowerCase().endsWith('.csv')
 const runs = {};
 for (const variant of variants) {
     const label = `rb_${variant}`;
-    const command = ['bun', 'run', 'src/backtest.js', '--data', data, ...csvArgs, '--tf', tf, '--label', label, ...(extra[variant] ?? [])];
+    const command = ['bun', 'run', 'src/backtest.js', '--data', data, ...csvArgs, '--tf', tf, '--label', label, ...(args.strategy ? ['--strategy', String(args.strategy)] : []), ...(extra[variant] ?? [])];
     const result = Bun.spawnSync(command, { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
     if (result.exitCode !== 0) {
         console.error(`${variant} failed: ${result.stderr.toString().split('\n')[0]}`);

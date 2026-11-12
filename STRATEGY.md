@@ -4,6 +4,12 @@ The Strat is a discretionary framework, not a fully specified algorithm. This
 document defines the exact subset implemented here. It is not a claim to
 replicate every trader's Strat execution.
 
+This file describes the **`strat` strategy only**. It is one plug-in in the
+strategy registry (`src/strategies/strat.js`). The engine and the contract for
+new strategies are documented in `docs/FRAMEWORK.md`; the ICT 2022 model is in
+`docs/ICT_2022.md`. The original headline is now a look-ahead regression
+fixture; the honest default is `--ambiguous stop`.
+
 ## 1. Candle classification
 
 Compare current bar `C` to the previous bar `P` using high/low only:
@@ -106,10 +112,24 @@ Exits are checked conservatively:
 - Entry and target rules are mechanical interpretations of discretionary Strat
   guidance.
 - Stop/target intrabar ordering is assumed (stop first), not modeled from ticks.
+- **Ambiguous entry days are look-ahead by default.** If a day trades through
+  both sides of the setup, the engine skips it. In live trading you enter on the
+  first touch and cannot know the other side will also trade. Use
+  `--ambiguous stop` for an honest bound, or replay on H1/M1. This bias is
+  largest on the Sunday partial bar (58% of setups engulfed), but it affects
+  every weekday (~20% of signals).
 - HTF grouping uses calendar weeks/months when timestamps are valid; otherwise
   fixed bar blocks are used.
-- No session filter, news filter, partials, trailing, pyramiding, or portfolio
-  risk limits.
+- **D1 session definition matters.** The Dukascopy feed emits a short Sunday
+  partial bar. Traded as a daily bar it produces a stop ~3x too tight and R
+  multiples ~3x too large. `--session merge-sunday` folds it into Monday; this
+  is the recommended measurement basis. The rule itself is unchanged.
+- No news filter, partials, trailing, or pyramiding. `--exclude-setup-dow` and
+  `--preset core` are execution/session filters, not new signal rules.
+- No news filter, partials, trailing, or pyramiding. `--exclude-setup-dow` and
+  `--preset core` are execution/session filters, not new signal rules.
+- Portfolio risk limits exist, and `--vol-target` adds causal vol scaling, but
+  neither is a validated edge; they are sizing overlays.
 - Broker-feed validation is still pending.
 - A date-based walk-forward was run, but the rule is not validated; see README.
   Treat this as a research harness, not a validated strategy.

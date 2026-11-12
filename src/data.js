@@ -42,7 +42,11 @@ async function loadCsv(path, { symbol = null, spread = 0, point = 0.00001 } = {}
     for (const line of lines.slice(1)) {
         if (!line.trim()) continue;
         const cells = line.split(',');
-        const parsed = Date.parse(cells[dateIndex]);
+        const rawTime = String(cells[dateIndex]).trim();
+        const numericTime = Number(rawTime);
+        const parsed = Number.isFinite(numericTime) && numericTime > 1e9
+            ? (numericTime > 1e12 ? numericTime : numericTime * 1000)
+            : Date.parse(rawTime);
         if (!Number.isFinite(parsed)) continue;
         const o = Number(cells[index.open]);
         const h = Number(cells[index.high]);
@@ -60,6 +64,10 @@ async function loadCsv(path, { symbol = null, spread = 0, point = 0.00001 } = {}
 }
 
 export function inferTimeframe(path) {
+    if (/[/\\]m1[/\\]/i.test(path) || /_M1\.json$/i.test(path)) return 'M1';
+    if (/[/\\]m5[/\\]/i.test(path) || /_M5\.json$/i.test(path)) return 'M5';
+    if (/[/\\]m15[/\\]/i.test(path) || /_M15\.json$/i.test(path)) return 'M15';
+    if (/[/\\]m30[/\\]/i.test(path) || /_M30\.json$/i.test(path)) return 'M30';
     if (/_H1\.json$/i.test(path)) return 'H1';
     if (/_H4\.json$/i.test(path)) return 'H4';
     if (/_D1\.json$/i.test(path)) return 'D1';
@@ -67,6 +75,10 @@ export function inferTimeframe(path) {
 }
 
 export function timeframeDefaults(timeframe) {
+    if (timeframe === 'M1') return { blocks: [60, 360], maxHold: 240, barsPerYear: 362880 };
+    if (timeframe === 'M5') return { blocks: [12, 72], maxHold: 120, barsPerYear: 72576 };
+    if (timeframe === 'M15') return { blocks: [4, 24], maxHold: 48, barsPerYear: 24192 };
+    if (timeframe === 'M30') return { blocks: [2, 12], maxHold: 24, barsPerYear: 12096 };
     if (timeframe === 'H1') return { blocks: [4, 24], maxHold: 24, barsPerYear: 6048 };
     if (timeframe === 'H4') return { blocks: [6, 30], maxHold: 12, barsPerYear: 1512 };
     return { blocks: [5, 21], maxHold: 10, barsPerYear: 252 };

@@ -46,7 +46,7 @@ for (const file of files) {
             : variant === 'close' ? ['--entry', 'close']
             : variant === 'reversal' ? ['--htf', 'reversal']
             : [];
-        const command = ['bun', 'run', 'src/backtest.js', '--data', `data/${file}`, '--tf', 'D1', '--no-save', ...range, ...extra];
+        const command = ['bun', 'run', 'src/backtest.js', '--data', `data/${file}`, '--tf', 'D1', '--no-save', ...range, ...(args.strategy ? ['--strategy', String(args.strategy)] : []), ...extra];
         const result = Bun.spawnSync(command, { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
         if (result.exitCode !== 0) {
             console.log(`${file.padEnd(20)} ${variant.padEnd(8)} FAILED`);

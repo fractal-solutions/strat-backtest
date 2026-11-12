@@ -5,6 +5,7 @@
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { loadBars } from './data.js';
+import { recordPortfolioTrial } from './trials.js';
 
 const ROOT = join(import.meta.dir, '..');
 const RESULTS = join(ROOT, 'results');
@@ -121,9 +122,14 @@ const symbolCsv = args['symbol-csv'] === true;
 const spreadPoints = String(args['spread-points'] ?? 10);
 const pointArg = args.point !== undefined ? String(args.point) : null;
 const variantArgs = [];
-for (const key of ['htf', 'target', 'entry', 'setups']) {
+for (const key of ['strategy', 'htf', 'target', 'entry', 'setups', 'session', 'exclude-setup-dow', 'preset', 'ambiguous', 'swing-lookback', 'ob-lookback', 'valid-bars', 'r-multiple', 'buffer-atr', 'ema-period', 'fvg-lookback', 'killzones', 'london-start', 'london-end', 'strict', 'zone-mode', 'signals']) {
     if (args[key] !== undefined) variantArgs.push(`--${key}`, String(args[key]));
 }
+const costMult = Number(args['cost-mult'] ?? 1);
+const volTarget = args['vol-target'] !== undefined ? Number(args['vol-target']) : null;
+const volLookback = Number(args['vol-lookback'] ?? 63);
+const volFloor = Number(args['vol-floor'] ?? 0.5);
+const volCap = Number(args['vol-cap'] ?? 2);
 
 const pairTrades = new Map();
 const pairBars = new Map();
@@ -139,7 +145,7 @@ for (const pair of pairs) {
         'bun', 'run', 'src/backtest.js',
         '--data', dataFile,
         ...csvArgs,
-        '--tf', 'D1',
+        '--tf', String(args.tf ?? 'D1').toUpperCase(),
         '--start-date', startDate,
         '--end-date', endDate,
         '--label', label,
@@ -191,10 +197,21 @@ const equityCurve = [];
 const pairPnl = new Map();
 const pairTradesCount = new Map();
 const openCounts = [];
+const tradePnls = [];
 let maxConcurrentRisk = 0;
 let maxConcurrentPositions = 0;
 let maxOpenRiskRatio = 0;
 let totalTrades = 0;
+
+// Causal volatility estimate: uses only returns strictly before day d, so the
+// sizing decision never sees the day it is trading.
+function trailingVol(d) {
+    const from = Math.max(1, d - volLookback);
+    const slice = dailyReturns.slice(from, d);
+    if (slice.length < 20) return null;
+    const sd = Math.sqrt(variance(slice));
+    return sd > 0 ? sd * Math.sqrt(252) : null;
+}
 
 for (let d = 0; d < dates.length; d++) {
     const date = dates[d];
@@ -208,7 +225,9 @@ for (let d = 0; d < dates.length; d++) {
         position.unrealized += position.direction * position.size * (trade.exit - position.mark);
         realized += position.unrealized;
         realized -= 0.5 * position.costAmount;
-        pairPnl.set(position.pair, (pairPnl.get(position.pair) ?? 0) + position.riskAmount * trade.netR);
+        const netRAfterStress = trade.netR - trade.costR * (costMult - 1);
+        pairPnl.set(position.pair, (pairPnl.get(position.pair) ?? 0) + position.riskAmount * netRAfterStress);
+        tradePnls.push(position.riskAmount * netRAfterStress);
         openRisk -= position.riskAmount;
         positions.splice(index, 1);
         totalTrades++;
@@ -225,12 +244,32 @@ for (let d = 0; d < dates.length; d++) {
     // Entries (after exits and marking)
     const entries = (entriesByDate.get(date) ?? []).sort((a, b) => a.pair.localeCompare(b.pair));
     const newPositions = [];
+    const realizedVol = volTarget ? trailingVol(d) : null;
+    const volScale = volTarget && realizedVol
+        ? Math.min(volCap, Math.max(volFloor, volTarget / realizedVol))
+        : 1;
+    const scaledRisk = riskPerTrade * volScale;
     for (const trade of entries) {
         if (positions.length >= maxPositions) break;
         const currentEquity = 1 + realized + totalUnrealized();
         const remainingRisk = Math.max(0, maxOpenRisk * currentEquity - openRisk);
-        const riskAmount = Math.min(riskPerTrade * currentEquity, remainingRisk);
-        if (riskAmount <= 0.2 * riskPerTrade * currentEquity) continue;
+        const riskAmount = Math.min(scaledRisk * currentEquity, remainingRisk);
+        if (riskAmount <= 0.2 * scaledRisk * currentEquity) continue;
+
+        // Trades that open and close on the same bar (e.g. the synthetic stop
+        // on an ambiguous day) cannot be represented as an open position.
+        // Realize them immediately at their backtest R.
+        if (trade.exitDate === trade.entryDate) {
+            const netRAfterStress = trade.netR - trade.costR * (costMult - 1);
+            const pnl = riskAmount * netRAfterStress;
+            realized += pnl;
+            tradePnls.push(pnl);
+            pairPnl.set(trade.pair, (pairPnl.get(trade.pair) ?? 0) + pnl);
+            pairTradesCount.set(trade.pair, (pairTradesCount.get(trade.pair) ?? 0) + 1);
+            totalTrades++;
+            continue;
+        }
+
         const size = riskAmount / trade.risk;
         const newPosition = {
             pair: trade.pair,
@@ -240,14 +279,14 @@ for (let d = 0; d < dates.length; d++) {
             mark: trade.entry,
             size,
             riskAmount,
-            costAmount: trade.costR * riskAmount,
+            costAmount: trade.costR * riskAmount * costMult,
             unrealized: 0,
             exitDate: trade.exitDate
         };
         positions.push(newPosition);
         newPositions.push(newPosition);
         openRisk += riskAmount;
-        realized -= 0.5 * (trade.costR * riskAmount);
+        realized -= 0.5 * (trade.costR * riskAmount * costMult);
         pairTradesCount.set(trade.pair, (pairTradesCount.get(trade.pair) ?? 0) + 1);
     }
 
@@ -284,10 +323,31 @@ const monthlyReturns = [...monthly.entries()].map(([month, values]) => {
 const boot = blockBootstrap(monthlyReturns);
 const exposure = openCounts.filter(count => count > 0).length / openCounts.length;
 
+function tailStats(pnls) {
+    const total = pnls.reduce((sum, value) => sum + value, 0);
+    const gains = pnls.filter(value => value > 0).reduce((sum, value) => sum + value, 0);
+    const losses = Math.abs(pnls.filter(value => value <= 0).reduce((sum, value) => sum + value, 0));
+    if (pnls.length === 0) return { total: 0, profitFactor: 0, top1Share: 0, top5Share: 0, top1Count: 0, top5Count: 0 };
+    const sorted = [...pnls].sort((a, b) => b - a);
+    const n1 = Math.max(1, Math.round(sorted.length * 0.01));
+    const n5 = Math.max(1, Math.round(sorted.length * 0.05));
+    const share = count => (total > 0 ? sorted.slice(0, count).reduce((sum, value) => sum + value, 0) / total : 0);
+    return {
+        total,
+        profitFactor: losses > 0 ? gains / losses : (gains > 0 ? Infinity : 0),
+        top1Count: n1,
+        top5Count: n5,
+        top1Share: share(n1),
+        top5Share: share(n5)
+    };
+}
+const tails = tailStats(tradePnls);
+
 console.log(`D1 portfolio: ${pairs.length} pairs, ${startDate} .. ${endDate}`);
-console.log(`Risk/trade ${(riskPerTrade * 100).toFixed(2)}%, max open risk ${(maxOpenRisk * 100).toFixed(1)}%, max positions ${maxPositions}`);
+console.log(`Risk/trade ${(riskPerTrade * 100).toFixed(2)}%${volTarget ? ` (vol target ${(volTarget * 100).toFixed(0)}%, lookback ${volLookback}, scale ${volFloor}-${volCap}x)` : ''}, max open risk ${(maxOpenRisk * 100).toFixed(1)}%, max positions ${maxPositions}${costMult !== 1 ? `, cost x${costMult}` : ''}`);
 console.log(`Trades ${totalTrades}, CAGR ${(metrics.cagr * 100).toFixed(2)}%, vol ${(metrics.vol * 100).toFixed(2)}%, Sharpe ${metrics.sharpe.toFixed(2)}, maxDD ${(metrics.maxDD * 100).toFixed(2)}%`);
 console.log(`Exposure ${(exposure * 100).toFixed(1)}%, avg open ${mean(openCounts).toFixed(2)}, max open ${maxConcurrentPositions}, max open risk ${(maxOpenRiskRatio * 100).toFixed(2)}% of equity`);
+console.log(`Profit factor ${Number.isFinite(tails.profitFactor) ? tails.profitFactor.toFixed(2) : 'inf'}, top 1% of trades ${(tails.top1Share * 100).toFixed(0)}% of PnL, top 5% ${(tails.top5Share * 100).toFixed(0)}%`);
 if (boot) {
     console.log(`Monthly bootstrap: Sharpe 5-95% [${boot.sharpe05.toFixed(2)}, ${boot.sharpe95.toFixed(2)}], mean 5-95% [${(boot.mean05 * 100).toFixed(3)}%, ${(boot.mean95 * 100).toFixed(3)}%]`);
 }
@@ -317,9 +377,24 @@ for (const fold of foldBounds) {
 
 await Bun.write(join(RESULTS, `portfolio_${tag}.json`), JSON.stringify({
     pairs, startDate, endDate, riskPerTrade, maxOpenRisk, maxPositions,
+    costMult, volTarget, volLookback, volFloor, volCap,
+    variantArgs,
     metrics, exposure, averageOpen: mean(openCounts), maxConcurrentRisk, maxOpenRiskRatio, maxConcurrentPositions,
-    monthlyReturns, bootstrap: boot,
+    tails, monthlyReturns, bootstrap: boot,
     pairPnl: Object.fromEntries(pairPnl),
     pairTrades: Object.fromEntries(pairTradesCount)
 }, null, 2));
 console.log(`\nWrote results/portfolio_${tag}.json`);
+
+if (args['record-trial']) {
+    const id = String(args['record-trial']);
+    const trials = recordPortfolioTrial({
+        id,
+        strategy: String(args.strategy ?? 'strat'),
+        monthlyReturns,
+        source: `portfolio:${tag}`,
+        note: variantArgs.join(' ')
+    });
+    const recorded = trials.find(trial => trial.id === id);
+    console.log(`Recorded trial "${id}" (Sharpe ${recorded.sharpe.toFixed(3)}, ${trials.length} trials total)`);
+}

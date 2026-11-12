@@ -115,11 +115,12 @@ for (let fold = 0; fold < folds; fold++) {
             'bun', 'run', 'src/backtest.js',
             '--data', dataFile,
             ...csvArgs,
-            '--tf', 'D1',
+            '--tf', String(args.tf ?? 'D1').toUpperCase(),
             '--start-date', from,
             '--end-date', to,
             '--label', label,
-            '--swap-mode', 'rates'
+            '--swap-mode', 'rates',
+            ...(args.strategy ? ['--strategy', String(args.strategy)] : [])
         ];
         const result = Bun.spawnSync(command, { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
         if (result.exitCode !== 0) {
